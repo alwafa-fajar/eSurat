@@ -1,0 +1,798 @@
+/* ═══════════════════════════════════════════════════════════════════
+   e-SURAT — js/admin.js
+   Router SPA panel admin, sidebar, dashboard, dan CRUD modul umum.
+   ═══════════════════════════════════════════════════════════════════ */
+
+var Adm = {
+  boot: null,            // hasil bootstrapAdmin
+  modulAktif: 'dashboard',
+  halaman: {},           // { idTabel: nomorHalaman }
+  filter: {},            // { modul: teksPencarian }
+  grafik: {}             // instance Chart.js
+};
+
+/* ── Muat panel admin ───────────────────────────────────────────── */
+function muatPanelAdmin() {
+  el('admKonten').innerHTML = keadaanMemuat('Memuat panel administrasi…');
+
+  return kirim('bootstrapAdmin', {}).then(function (r) {
+    if (!r.success) {
+      el('admKonten').innerHTML = keadaanKosong('Panel gagal dimuat', r.message, 'bi-exclamation-triangle',
+        '<button class="btn btn-utama" onclick="muatPanelAdmin()">Coba Lagi</button>');
+      return false;
+    }
+    Adm.boot = r.data;
+    renderKerangkaAdmin();
+    renderModul(Adm.modulAktif);
+    return true;
+  });
+}
+
+function renderKerangkaAdmin() {
+  var b = Adm.boot;
+  var cfg = b.config || {};
+  var u = b.user || {};
+
+  el('sbInstitusi').textContent = cfg.INSTITUSI_SINGKATAN || 'Sekretariat';
+  el('admNamaInstitusi').textContent = cfg.INSTITUSI_SINGKATAN || cfg.INSTITUSI_NAMA || 'e-SURAT';
+  el('admTahunAkademik').textContent = 'TA ' + (cfg.TAHUN_AKADEMIK || '—') + ' ' + (cfg.SEMESTER || '');
+  el('admNama').textContent = u.jabatan || u.nama;
+  el('admEmail').textContent = u.email;
+  el('admAvatar').textContent = inisial(u.nama);
+  if (cfg.INSTITUSI_LOGO) el('admLogo').innerHTML = '<img src="' + esc(cfg.INSTITUSI_LOGO) + '" alt="">';
+
+  renderSidebar();
+
+  var antre = ((b.dashboard || {}).totalAntrean) || 0;
+  if (antre > 0) el('tbDot').hidden = false;
+}
+
+function renderSidebar() {
+  var peran = (Adm.boot.user || {}).peran;
+  var jumlahMasuk = (Adm.boot.data.suratMasuk || []).filter(function (r) {
+    return selisihHari(r.tanggalTerima) <= 7;
+  }).length;
+  var jumlahAntre = ((Adm.boot.dashboard || {}).totalAntrean) || 0;
+
+  var h = '';
+  MODUL_ADMIN.forEach(function (m) {
+    if (m.grup) { h += '<div class="sb-grup">' + esc(m.grup) + '</div>'; return; }
+    if (m.peran && m.peran.indexOf(peran) < 0) return;
+
+    var hitung = '';
+    if (m.kunci === 'suratMasuk' && jumlahMasuk) hitung = '<span class="hitung">' + jumlahMasuk + '</span>';
+    if ((m.kunci === 'pengajuanMhs' || m.kunci === 'pengajuanDosen') && jumlahAntre) {
+      var n = m.kunci === 'pengajuanMhs' ? (Adm.boot.dashboard.kpi.ukt || 0)
+                                         : (Adm.boot.dashboard.kpi.dosen || 0);
+      if (n) hitung = '<span class="hitung">' + n + '</span>';
+    }
+
+    h += '<button class="sb-item' + (m.kunci === Adm.modulAktif ? ' aktif' : '') +
+         '" onclick="renderModul(\'' + m.kunci + '\')">' +
+         '<i class="bi ' + m.ikon + '"></i><span class="sisa">' + esc(m.nama) + '</span>' + hitung + '</button>';
+  });
+
+  h += '<div class="sb-grup">Akun</div>' +
+    '<button class="sb-item" onclick="bukaGantiSandi()"><i class="bi bi-key"></i>' +
+    '<span class="sisa">Ganti Kata Sandi</span></button>' +
+    '<button class="sb-item" onclick="keluarKePortal()"><i class="bi bi-globe"></i>' +
+    '<span class="sisa">Lihat Portal Publik</span></button>' +
+    '<button class="sb-item" onclick="logout()"><i class="bi bi-box-arrow-right"></i>' +
+    '<span class="sisa">Keluar</span></button>';
+
+  el('sbMenu').innerHTML = h;
+}
+
+/* ── Router modul ───────────────────────────────────────────────── */
+function renderModul(kunci) {
+  Adm.modulAktif = kunci;
+  renderSidebar();
+  tutupSidebar();
+  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+
+  var w = el('admKonten');
+  jalankanAman(function () {
+    switch (kunci) {
+      case 'dashboard':      return renderDashboard(w);
+      case 'suratKeluar':    return renderSuratKeluar(w);
+      case 'sk':             return renderSK(w);
+      case 'beritaAcara':    return renderBeritaAcara(w);
+      case 'pengajuanMhs':   return renderAntreanPengajuan(w, 'mahasiswa');
+      case 'pengajuanDosen': return renderAntreanPengajuan(w, 'dosen');
+      case 'laporan':        return renderLaporan(w);
+      case 'pengaturan':     return renderPengaturan(w);
+      default:               return renderModulUmum(w, kunci);
+    }
+  }, 'Modul ' + kunci);
+}
+
+function infoModul(kunci) {
+  var m = MODUL_ADMIN.filter(function (x) { return x.kunci === kunci; })[0];
+  return m || { kunci: kunci, nama: kunci, ikon: 'bi-folder' };
+}
+
+function kepalaHalaman(o) {
+  return '<div class="halaman-kepala"><div>' +
+    '<div class="remah">' + (o.remah || []).map(function (r, i, a) {
+      return '<span class="' + (i === a.length - 1 ? 'kini' : '') + '">' + esc(r) + '</span>' +
+             (i < a.length - 1 ? '<span class="pisah"><i class="bi bi-chevron-right"></i></span>' : '');
+    }).join('') + '</div>' +
+    '<h2>' + esc(o.judul) + '</h2>' +
+    (o.sub ? '<div class="h-sub">' + esc(o.sub) + '</div>' : '') +
+    '</div><div class="halaman-aksi">' + (o.aksi || '') + '</div></div>';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   DASHBOARD
+   ══════════════════════════════════════════════════════════════════ */
+function renderDashboard(w) {
+  var d = Adm.boot.dashboard || {};
+  var k = d.kpi || {};
+  var cfg = Adm.boot.config || {};
+  var u = Adm.boot.user || {};
+
+  var h = '';
+
+  /* Banner sambutan */
+  h += '<div class="sambutan">' +
+    '<div class="s-ikon"><i class="bi bi-shield-check"></i></div>' +
+    '<div class="s-teks">' +
+    '<div class="s-label">Portal Tata Usaha &amp; Administrasi · TA ' + esc(cfg.TAHUN_AKADEMIK || '—') + '</div>' +
+    '<h2>Selamat datang kembali, ' + esc(u.nama) + '</h2>' +
+    '<div class="s-sub">' + esc(u.jabatan || u.peran) + ' · Tanggung jawab operasional registri persuratan ' +
+    esc(cfg.INSTITUSI_SINGKATAN || '') + '</div></div>' +
+    '<div class="s-aksi">' +
+    '<div class="sinkron"><div class="t">Sinkronisasi Google Sheets &amp; Drive</div>' +
+    '<div class="v">Aktif &amp; Tersinkron</div></div>' +
+    '<button class="btn btn-utama btn-blok" onclick="segarkanDashboard(this)">' +
+    '<i class="bi bi-arrow-repeat"></i> Sinkron Sekarang</button></div></div>';
+
+  /* KPI */
+  h += '<div class="kpi-grid">' +
+    kartuKpi('Surat Masuk Bulan Ini', k.suratMasuk || 0, 'Dokumen', 'bi-inbox', 'biru',
+      (k.deltaSuratMasuk ? '<span class="lencana ' + (k.deltaSuratMasuk > 0 ? 'ok' : 'neut') + '">' +
+        '<i class="bi bi-graph-' + (k.deltaSuratMasuk > 0 ? 'up' : 'down') + '-arrow"></i>' +
+        (k.deltaSuratMasuk > 0 ? '+' : '') + k.deltaSuratMasuk + '%</span>' : '') +
+      '<span>vs bulan lalu (' + (k.suratMasukLalu || 0) + ')</span>') +
+
+    kartuKpi('Surat Keluar Terbit', k.suratKeluar || 0, 'Surat Resmi', 'bi-send-check', 'emas',
+      '<div style="width:100%"><div class="label-kecil mb4">Nomor Terakhir Diterbitkan</div>' +
+      chipNomor(k.nomorTerakhir) + '</div>') +
+
+    kartuKpi('Dalam Verifikasi', k.dalamVerifikasi || 0, 'Berkas Antrean', 'bi-clipboard-check', 'emas',
+      '<span class="lencana neut">' + (k.ukt || 0) + ' UKT Mhs</span>' +
+      '<span class="lencana neut">' + (k.dosen || 0) + ' Dosen</span>' +
+      ((k.dalamVerifikasi || 0) > 0 ? '<span class="tx-emas"><i class="bi bi-exclamation-circle-fill"></i></span>' : '')) +
+
+    kartuKpi('Dokumen &amp; MOU Aktif', k.totalArsip || 0, 'Total Arsip', 'bi-archive', 'hijau',
+      '<span class="baris g6"><i class="bi bi-cloud-check tx-ok"></i> 100% Cloud Drive</span>' +
+      '<span class="lencana ok">Tersimpan Aman</span>') +
+    '</div>';
+
+  /* Grafik */
+  h += '<div class="grafik-grid">' +
+    '<div class="kartu"><div class="kartu-kepala"><div>' +
+    '<div class="label-kecil mb4">Tren Aktivitas</div>' +
+    '<h3>Volume Persuratan &amp; Pengajuan Bulanan</h3>' +
+    '<div class="kartu-sub">Sembilan bulan terakhir · agregasi otomatis dari basis data Google Sheets</div>' +
+    '</div></div><div class="grafik-kotak"><canvas id="grafikTren"></canvas></div></div>' +
+
+    '<div class="kartu"><div class="kartu-kepala"><div>' +
+    '<div class="label-kecil mb4">Klasifikasi Registri</div>' +
+    '<h3>Distribusi Kategori</h3>' +
+    '<div class="kartu-sub">Proporsi dari total ' + angka(k.totalArsip || 0) + ' dokumen arsip aktif</div>' +
+    '</div><i class="bi bi-pie-chart tx-3" style="font-size:18px"></i></div>' +
+    '<div class="grafik-kotak" style="height:210px"><canvas id="grafikDistribusi"></canvas></div>' +
+    '<div class="legenda" id="legendaDistribusi"></div></div></div>';
+
+  /* Analisis otomatis */
+  if ((d.insight || []).length) {
+    h += '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
+      '<h3 style="font-size:16px">Analisis Otomatis</h3>' +
+      '<div class="kartu-sub">Hal-hal yang perlu perhatian Anda hari ini</div></div></div>' +
+      '<div class="tumpuk g10">' +
+      d.insight.map(function (i) {
+        var warna = { info: 'info', warning: 'warn', danger: 'dang', neutral: 'neut' }[i.tipe] || 'neut';
+        return '<div class="baris g10" style="align-items:flex-start;padding:11px 13px;' +
+          'background:var(--surface-2);border-radius:var(--r-lg);border-left:3px solid ' +
+          (warna === 'dang' ? 'var(--dang-fg)' : warna === 'warn' ? 'var(--amber)' : 'var(--navy)') + '">' +
+          '<i class="bi ' + esc(i.ikon || 'bi-info-circle') + '" style="margin-top:2px"></i>' +
+          '<div class="sisa tx-md">' + i.teks + '</div></div>';
+      }).join('') + '</div></div>';
+  }
+
+  /* Dua panel bawah */
+  h += '<div class="panel-grid">' + panelAntrean(d) + panelTerbaru(d) + '</div>';
+
+  w.innerHTML = h;
+  setTimeout(function () { jalankanAman(function () { gambarGrafikDashboard(d); }, 'Grafik'); }, 40);
+}
+
+function kartuKpi(label, nilai2, satuan, ikon, warna, kaki) {
+  return '<div class="kpi"><div class="kpi-atas">' +
+    '<div class="kpi-label">' + label + '</div>' +
+    '<div class="kpi-ikon ' + warna + '"><i class="bi ' + ikon + '"></i></div></div>' +
+    '<div class="kpi-nilai">' + angka(nilai2) + '<small>' + esc(satuan) + '</small></div>' +
+    (kaki ? '<div class="kpi-kaki">' + kaki + '</div>' : '') + '</div>';
+}
+
+function panelAntrean(d) {
+  var a = d.antrean || [];
+  var h = '<div class="kartu"><div class="kartu-kepala"><div class="baris g10">' +
+    '<div class="kpi-ikon emas" style="background:var(--dang-bg);color:var(--dang-fg)">' +
+    '<i class="bi bi-clipboard-x"></i></div>' +
+    '<div><h3 style="font-size:16px">Antrean Butuh Tindakan Segera</h3>' +
+    '<div class="kartu-sub">Menunggu verifikasi validitas dokumen &amp; persetujuan pimpinan</div></div></div>' +
+    (a.length ? '<span class="lencana dang">' + a.length + ' Prioritas</span>' : '') + '</div>';
+
+  if (!a.length) {
+    h += keadaanKosong('Antrean bersih', 'Tidak ada pengajuan yang menunggu verifikasi saat ini.',
+                       'bi-check2-circle');
+  } else {
+    h += a.map(function (x) {
+      return '<div class="antrean-item">' +
+        '<div class="avatar ai-avatar">' + inisial(x.nama) + '</div>' +
+        '<div class="ai-isi">' +
+        '<div class="ai-nama">' + esc(x.nama) +
+        '<span class="chip-nomor" style="height:21px;font-size:10px">' + esc(x.identitas || '-') + '</span></div>' +
+        '<div class="ai-perihal">' + esc(x.perihal) + '</div>' +
+        '<div class="ai-meta">Diajukan: ' + tglJam(x.tanggal) + ' · ' + umurTeks(x.tanggal) + '</div></div>' +
+        '<div class="ai-aksi">' +
+        '<span class="lencana ' + (x.umurHari > 5 ? 'dang' : 'warn') + '">Menunggu ' +
+        esc(potong(x.menunggu, 22)) + '</span>' +
+        '<button class="btn btn-navy btn-sm" onclick="bukaVerifikasi(\'' + x.jenis + '\',\'' + x.id + '\')">' +
+        'Review <i class="bi bi-arrow-right"></i></button></div></div>';
+    }).join('');
+
+    h += '<div class="baris antara g10 mt12 bungkus">' +
+      '<div class="tx-sm tx-3">Total ' + (d.totalAntrean || a.length) + ' pengajuan tersisa di antrean sistem</div>' +
+      '<button class="btn btn-hantu btn-sm" onclick="renderModul(\'pengajuanMhs\')">' +
+      'Lihat Semua Antrean <i class="bi bi-arrow-right"></i></button></div>';
+  }
+  return h + '</div>';
+}
+
+function panelTerbaru(d) {
+  var t = d.terbaru || [];
+  var h = '<div class="kartu"><div class="kartu-kepala"><div class="baris g10">' +
+    '<div class="kpi-ikon emas"><i class="bi bi-envelope-paper"></i></div>' +
+    '<div><h3 style="font-size:16px">Surat Keluar Terbit Terkini</h3>' +
+    '<div class="kartu-sub">Dokumen resmi tervalidasi TTE &amp; siap didistribusikan</div></div></div>' +
+    '<span class="chip-nomor">Auto-Lock Active</span></div>';
+
+  if (!t.length) {
+    h += keadaanKosong('Belum ada surat terbit',
+      'Dokumen yang telah diterbitkan akan tampil di sini lengkap dengan tautan PDF resmi.',
+      'bi-file-earmark-x',
+      '<button class="btn btn-utama" onclick="renderModul(\'suratKeluar\')">' +
+      '<i class="bi bi-plus-lg"></i> Buat Surat Keluar</button>');
+  } else {
+    h += t.map(function (x) {
+      return '<div class="dok-item"><div class="d-atas">' + chipNomor(x.nomor) +
+        (x.tte ? '<span class="lencana ok"><i class="bi bi-patch-check-fill"></i> TTE Terverifikasi</span>' : '') +
+        '</div><div class="d-judul">' + esc(potong(x.perihal, 96)) + '</div>' +
+        '<div class="d-kaki"><span><i class="bi bi-pen"></i> ' + esc(potong(x.pejabat || '-', 34)) + '</span>' +
+        '<span><i class="bi bi-calendar3"></i> ' + tgl(x.tanggal) + '</span>' +
+        '<div class="sisa"></div>' +
+        (x.pdfUrl ? '<a class="btn btn-garis btn-sm" href="' + esc(x.pdfUrl) + '" target="_blank" rel="noopener">' +
+          '<i class="bi bi-download"></i> PDF Resmi</a>' : '') + '</div></div>';
+    }).join('');
+
+    h += '<div class="baris antara g10 mt12 bungkus">' +
+      '<div class="tx-sm tx-3"><i class="bi bi-lock"></i> Nomor surat terkunci otomatis &amp; tersimpan di Drive</div>' +
+      '<button class="btn btn-hantu btn-sm" onclick="renderModul(\'suratKeluar\')">' +
+      'Buka Generator Surat <i class="bi bi-arrow-right"></i></button></div>';
+  }
+  return h + '</div>';
+}
+
+function gambarGrafikDashboard(d) {
+  if (typeof Chart === 'undefined') return;
+
+  var gelap = document.body.classList.contains('gelap');
+  var grid = gelap ? 'rgba(255,255,255,.07)' : 'rgba(22,41,63,.07)';
+  var teks = gelap ? '#A3B0C0' : '#475569';
+  Chart.defaults.font.family = "'Inter', sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = teks;
+
+  /* Tren */
+  var c1 = el('grafikTren');
+  if (c1 && d.tren) {
+    if (Adm.grafik.tren) Adm.grafik.tren.destroy();
+    Adm.grafik.tren = new Chart(c1, {
+      data: {
+        labels: d.tren.label,
+        datasets: [
+          { type: 'bar', label: 'Surat Masuk', data: d.tren.suratMasuk,
+            backgroundColor: '#1E3A5F', borderRadius: 4, maxBarThickness: 20 },
+          { type: 'bar', label: 'Surat Keluar', data: d.tren.suratKeluar,
+            backgroundColor: '#F5A623', borderRadius: 4, maxBarThickness: 20 },
+          { type: 'line', label: 'Pengajuan Masuk', data: d.tren.pengajuan,
+            borderColor: '#DC2626', backgroundColor: '#DC2626', tension: .35,
+            pointRadius: 3, pointHoverRadius: 5, borderWidth: 2 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', align: 'start',
+                    labels: { usePointStyle: true, pointStyle: 'rectRounded', boxWidth: 9, padding: 14 } },
+          tooltip: { backgroundColor: '#16293F', padding: 11, cornerRadius: 8, titleFont: { size: 12 } }
+        },
+        scales: {
+          x: { grid: { display: false }, border: { color: grid } },
+          y: { beginAtZero: true, grid: { color: grid }, border: { display: false },
+               ticks: { precision: 0 } }
+        }
+      }
+    });
+  }
+
+  /* Distribusi */
+  var c2 = el('grafikDistribusi');
+  if (c2 && d.distribusi && d.distribusi.nilai.length) {
+    if (Adm.grafik.dist) Adm.grafik.dist.destroy();
+    var total = d.distribusi.nilai.reduce(function (a, b) { return a + b; }, 0);
+
+    Adm.grafik.dist = new Chart(c2, {
+      type: 'doughnut',
+      data: {
+        labels: d.distribusi.label,
+        datasets: [{ data: d.distribusi.nilai, backgroundColor: d.distribusi.warna,
+                     borderWidth: 3, borderColor: gelap ? '#16202E' : '#fff' }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '66%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { backgroundColor: '#16293F', padding: 11, cornerRadius: 8 }
+        }
+      }
+    });
+
+    el('legendaDistribusi').innerHTML = d.distribusi.label.map(function (l, i) {
+      var n = d.distribusi.nilai[i];
+      return '<div class="lg"><span class="warna" style="background:' + d.distribusi.warna[i] + '"></span>' +
+        '<span class="nama">' + esc(l) + '</span>' +
+        '<span class="persen">' + (total ? Math.round((n / total) * 100) : 0) + '%</span>' +
+        '<span class="nilai">(' + n + ')</span></div>';
+    }).join('');
+  } else if (c2) {
+    c2.parentNode.innerHTML = '<div class="kosong" style="padding:26px"><i class="bi bi-pie-chart"></i>' +
+      '<div class="k-desk">Belum ada dokumen terarsip untuk ditampilkan.</div></div>';
+  }
+}
+
+function segarkanDashboard(btn) {
+  tombolSibuk(btn, true, 'Menyinkronkan…');
+  kirim('bootstrapAdmin', {}).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+    Adm.boot = r.data;
+    renderKerangkaAdmin();
+    renderModul('dashboard');
+    toast('Data berhasil disinkronkan dari Google Sheets.', 'sukses');
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   MODUL UMUM — Surat Masuk, MOU, Arsip
+   ══════════════════════════════════════════════════════════════════ */
+function renderModulUmum(w, kunci) {
+  var info = infoModul(kunci);
+  var kolom = KOLOM_MODUL[kunci] || [];
+  var data = (Adm.boot.data[kunci] || []).slice().reverse();
+  var cari = Adm.filter[kunci] || '';
+
+  if (cari) {
+    var q = cari.toLowerCase();
+    data = data.filter(function (r) {
+      return Object.keys(r).some(function (k) {
+        return String(r[k] || '').toLowerCase().indexOf(q) >= 0;
+      });
+    });
+  }
+
+  var bolehTulis = Sesi.boleh('tulis');
+  var deskripsi = {
+    suratMasuk: 'Buku agenda surat masuk dengan penomoran otomatis, disposisi pimpinan, dan lampiran hasil pindai.',
+    mou: 'Nota kesepahaman dengan mitra beserta pemantauan masa berlaku dan penanggung jawab.',
+    arsip: 'Penyimpanan legalitas, akreditasi, SK yayasan, dan dokumen institusi lainnya.'
+  }[kunci] || '';
+
+  var h = kepalaHalaman({
+    remah: ['Arsip & Persuratan', info.nama],
+    judul: info.nama,
+    sub: deskripsi,
+    aksi: (bolehTulis ? '<button class="btn btn-utama" onclick="bukaFormModul(\'' + kunci + '\')">' +
+            '<i class="bi bi-plus-lg"></i> Tambah Data</button>' : '') +
+          '<button class="btn btn-garis" onclick="eksporModul(\'' + kunci + '\')">' +
+          '<i class="bi bi-filetype-csv"></i> Ekspor CSV</button>'
+  });
+
+  h += '<div class="kartu kartu-rapat">' +
+    '<div class="tabel-alat"><div class="cari"><i class="bi bi-search"></i>' +
+    '<input type="search" id="cari_' + kunci + '" value="' + esc(cari) +
+    '" placeholder="Cari nomor, perihal, instansi…" oninput="cariModul(\'' + kunci + '\',this.value)"></div>' +
+    '<div class="sisa"></div>' +
+    '<span class="lencana neut">' + data.length + ' data</span></div>' +
+
+    bangunTabel({
+      data: data, kolom: kolom, idTabel: kunci,
+      halaman: Adm.halaman[kunci] || 1,
+      judulKosong: cari ? 'Tidak ada hasil' : 'Belum ada data',
+      deskKosong: cari ? 'Tidak ditemukan data yang cocok dengan kata kunci "' + cari + '".'
+                       : 'Klik "Tambah Data" untuk mulai mengisi ' + info.nama.toLowerCase() + '.',
+      ikonKosong: cari ? 'bi-search' : 'bi-inbox',
+      aksi: function (r) {
+        var a = '<button class="btn btn-hantu btn-ikon" title="Lihat detail" onclick="lihatDetail(\'' +
+                kunci + '\',\'' + r.id + '\')"><i class="bi bi-eye"></i></button>';
+        if (r.fileScanUrl || r.fileUrl) {
+          a += '<a class="btn btn-hantu btn-ikon" title="Buka berkas" target="_blank" rel="noopener" href="' +
+               esc(r.fileScanUrl || r.fileUrl) + '"><i class="bi bi-paperclip"></i></a>';
+        }
+        if (bolehTulis) {
+          a += '<button class="btn btn-hantu btn-ikon" title="Ubah" onclick="bukaFormModul(\'' + kunci +
+               '\',\'' + r.id + '\')"><i class="bi bi-pencil"></i></button>';
+        }
+        if (Sesi.boleh('hapus')) {
+          a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'' + kunci +
+               '\',\'' + r.id + '\')"><i class="bi bi-trash"></i></button>';
+        }
+        return a;
+      }
+    }) + '</div>';
+
+  w.innerHTML = h;
+}
+
+function cariModul(kunci, teks) {
+  Adm.filter[kunci] = teks;
+  Adm.halaman[kunci] = 1;
+  var posisi = document.activeElement === el('cari_' + kunci);
+  renderModul(kunci);
+  if (posisi) { var i = el('cari_' + kunci); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+}
+
+function gantiHalaman(idTabel, n) {
+  Adm.halaman[idTabel] = n;
+  if (idTabel === 'laporan') { gambarTabelLaporan(); return; }
+  if (idTabel === 'antreanMhs') { renderAntreanPengajuan(el('admKonten'), 'mahasiswa'); return; }
+  if (idTabel === 'antreanDosen') { renderAntreanPengajuan(el('admKonten'), 'dosen'); return; }
+  renderModul(idTabel);
+}
+
+/* ── Formulir modul umum ────────────────────────────────────────── */
+var SKEMA_FORM = {
+  suratMasuk: {
+    judul: 'Agenda Surat Masuk',
+    sub: 'Nomor agenda dibuat otomatis oleh sistem saat data disimpan.',
+    bidang: [
+      { id: 'tanggalTerima', l: 'Tanggal Terima', t: 'date', wajib: true, kolom: 2 },
+      { id: 'tanggalSurat', l: 'Tanggal Surat', t: 'date', kolom: 2 },
+      { id: 'asalInstansi', l: 'Asal Instansi Pengirim', wajib: true, ph: 'Kementerian Agama RI' },
+      { id: 'nomorSuratAsal', l: 'Nomor Surat Asal', ph: 'B-1234/Dt.I.II/PP.00.9/IX/2026' },
+      { id: 'perihal', l: 'Perihal Surat', t: 'area', wajib: true, baris: 2 },
+      { id: 'sifat', l: 'Sifat Surat', t: 'pilih', kolom: 2,
+        opsi: ['Biasa', 'Penting', 'Segera', 'Sangat Segera', 'Rahasia'] },
+      { id: 'tujuanDisposisi', l: 'Tujuan Disposisi', kolom: 2, ph: 'Pembantu Ketua I' },
+      { id: 'catatanDisposisi', l: 'Catatan Disposisi Pimpinan', t: 'area', baris: 3 }
+    ]
+  },
+  mou: {
+    judul: 'Nota Kesepahaman (MOU)',
+    sub: 'Nomor MOU dibuat otomatis. MOU yang berakhir dalam 60 hari ditandai di dashboard.',
+    bidang: [
+      { id: 'pihakTerkait', l: 'Pihak Terkait / Mitra', wajib: true, ph: 'Pengadilan Agama Bekasi' },
+      { id: 'kategori', l: 'Kategori Kerja Sama', t: 'pilih', kolom: 2,
+        opsi: ['Tri Dharma Perguruan Tinggi', 'Magang & Praktik Kerja', 'Riset & Publikasi',
+               'Pengabdian Masyarakat', 'Beasiswa', 'Lainnya'] },
+      { id: 'status', l: 'Status', t: 'pilih', kolom: 2, opsi: ['AKTIF', 'BERAKHIR', 'DIBATALKAN'] },
+      { id: 'ruangLingkup', l: 'Ruang Lingkup Kerja Sama', t: 'area', wajib: true, baris: 3 },
+      { id: 'tanggalMulai', l: 'Tanggal Mulai Berlaku', t: 'date', wajib: true, kolom: 2 },
+      { id: 'tanggalBerakhir', l: 'Tanggal Berakhir', t: 'date', wajib: true, kolom: 2 },
+      { id: 'pic', l: 'Penanggung Jawab (PIC)', kolom: 2 },
+      { id: 'kontakPic', l: 'Kontak PIC', kolom: 2, ph: 'nama@instansi.go.id / 0812…' }
+    ]
+  },
+  arsip: {
+    judul: 'Arsip Dokumen Penting',
+    sub: 'Kode arsip dibuat otomatis. Berkas disimpan di Google Drive dengan tautan baca.',
+    bidang: [
+      { id: 'namaDokumen', l: 'Nama Dokumen', wajib: true, ph: 'Sertifikat Akreditasi Institusi' },
+      { id: 'kategori', l: 'Kategori Arsip', t: 'pilih', kolom: 2,
+        opsi: ['Legalitas Institusi', 'Akreditasi', 'SK Yayasan', 'Perizinan', 'Keuangan',
+               'Kepegawaian', 'Aset', 'Lainnya'] },
+      { id: 'klasifikasiAkses', l: 'Klasifikasi Akses', t: 'pilih', kolom: 2,
+        opsi: ['Publik', 'Internal', 'Terbatas', 'Rahasia'] },
+      { id: 'lembagaPenerbit', l: 'Lembaga Penerbit', kolom: 2, ph: 'BAN-PT' },
+      { id: 'tahunTerbit', l: 'Tahun Terbit', t: 'number', kolom: 2 },
+      { id: 'nomorLegalitas', l: 'Nomor Legalitas', ph: '418/SK/BAN-PT/Akred/PT/VIII/2024' },
+      { id: 'keterangan', l: 'Keterangan Tambahan', t: 'area', baris: 3 }
+    ]
+  }
+};
+
+function bukaFormModul(kunci, id) {
+  var skema = SKEMA_FORM[kunci];
+  if (!skema) { toast('Formulir untuk modul ini belum tersedia.', 'peringatan'); return; }
+
+  var rec = id ? (Adm.boot.data[kunci] || []).filter(function (r) { return String(r.id) === String(id); })[0] : null;
+  rec = rec || {};
+
+  var isi = '';
+  var i = 0;
+  while (i < skema.bidang.length) {
+    var b = skema.bidang[i];
+    if (b.kolom === 2 && skema.bidang[i + 1] && skema.bidang[i + 1].kolom === 2) {
+      isi += '<div class="grid-2">' + bidangForm(b, rec) + bidangForm(skema.bidang[i + 1], rec) + '</div>';
+      i += 2;
+    } else {
+      isi += bidangForm(b, rec);
+      i++;
+    }
+  }
+
+  /* Lampiran berkas */
+  isi += '<div class="garis"></div><div class="label-kecil mb8">Lampiran Berkas</div>' +
+    '<label class="unggah" id="lampUnggah">' +
+    '<div class="u-ikon"><i class="bi bi-paperclip"></i></div>' +
+    '<div class="u-teks"><div class="u-nama">Hasil Pindai / Dokumen Digital</div>' +
+    '<div class="u-desk">PDF atau gambar, maksimal ' + ((Adm.boot.config || {}).UPLOAD_MAX_MB || 2) + ' MB</div>' +
+    '<div class="u-berkas' + (rec.fileScanUrl || rec.fileUrl ? '' : ' sembunyi') + '" id="lampNama">' +
+    (rec.fileScanUrl || rec.fileUrl ? '<i class="bi bi-check-circle-fill"></i> Berkas sudah terlampir' : '') +
+    '</div></div>' +
+    '<span class="btn btn-navy btn-sm"><i class="bi bi-upload"></i> Pilih Berkas</span>' +
+    '<input type="file" id="lampBerkas" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" onchange="pilihLampiran(this)">' +
+    '</label>';
+
+  bukaModal({
+    judul: (id ? 'Ubah ' : 'Tambah ') + skema.judul,
+    sub: skema.sub,
+    isi: isi,
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
+          '<button class="btn btn-utama" id="btnSimpanModul" onclick="simpanModul(\'' + kunci + '\',\'' +
+          (id || '') + '\')"><i class="bi bi-save"></i> Simpan Data</button>'
+  });
+
+  window.__lampiranSementara = null;
+}
+
+function bidangForm(b, rec) {
+  var v = rec[b.id];
+  if (b.t === 'date') v = v ? tglInput(v) : (b.id === 'tanggalTerima' ? tglInput() : '');
+  if (b.t === 'area') return bidangArea({ id: b.id, label: b.l, wajib: b.wajib, baris: b.baris, nilai: v, placeholder: b.ph });
+  if (b.t === 'pilih') return bidangPilih({ id: b.id, label: b.l, wajib: b.wajib, opsi: b.opsi, nilai: v });
+  return bidangTeks({ id: b.id, label: b.l, wajib: b.wajib, tipe: b.t || 'text', nilai: v, placeholder: b.ph });
+}
+
+function pilihLampiran(input) {
+  var f = input.files && input.files[0];
+  if (!f) return;
+  var cfg = Adm.boot.config || {};
+  var galat = validasiBerkas(f, Number(cfg.UPLOAD_MAX_MB || 2),
+    String(cfg.UPLOAD_FORMAT || 'pdf,jpg,jpeg,png').split(',').map(function (s) { return s.trim(); }));
+  if (galat) { toast(galat, 'galat'); input.value = ''; return; }
+
+  bacaBerkasBase64(f).then(function (b64) {
+    window.__lampiranSementara = { nama: f.name, mime: f.type, base64: b64 };
+    el('lampUnggah').classList.add('terisi');
+    var n = el('lampNama');
+    n.innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + esc(f.name) + ' (' + formatUkuran(f.size) + ')';
+    n.classList.remove('sembunyi');
+  }).catch(function (e) { toast(e.message, 'galat'); });
+}
+
+function simpanModul(kunci, id) {
+  var skema = SKEMA_FORM[kunci];
+  var btn = el('btnSimpanModul');
+
+  var aturan = skema.bidang.filter(function (b) { return b.wajib; })
+    .map(function (b) { return { id: b.id, wajib: true }; });
+  if (!validasiForm(null, aturan)) return;
+
+  var rec = { id: id || '' };
+  skema.bidang.forEach(function (b) { rec[b.id] = ambilNilai(b.id); });
+
+  tombolSibuk(btn, true, 'Menyimpan…');
+
+  kirim('simpanRecord', { modul: kunci, data: rec }).then(function (r) {
+    if (!r.success) { tombolSibuk(btn, false); toast(r.message, 'galat'); return; }
+
+    var lamp = window.__lampiranSementara;
+    if (!lamp) return selesaiSimpan(r, kunci, btn);
+
+    tombolSibuk(btn, true, 'Mengunggah berkas…');
+    return kirim('lampirkanScan', {
+      modul: kunci, id: r.data.id, nama: lamp.nama, mime: lamp.mime, base64: lamp.base64
+    }, APP.batasWaktuUnggah).then(function (r2) {
+      if (!r2.success) toast('Data tersimpan, tetapi berkas gagal diunggah: ' + r2.message, 'peringatan');
+      return selesaiSimpan(r, kunci, btn);
+    });
+  });
+}
+
+function selesaiSimpan(r, kunci, btn) {
+  tombolSibuk(btn, false);
+  window.__lampiranSementara = null;
+  tutupModal();
+  toast(r.message, 'sukses');
+  return segarkanModul(kunci);
+}
+
+function segarkanModul(kunci) {
+  return kirim('refreshModul', { modul: kunci }).then(function (r) {
+    if (r.success) Adm.boot.data[kunci] = r.data;
+    if (Adm.modulAktif === kunci) renderModul(kunci);
+    return r;
+  });
+}
+
+function hapusData(kunci, id) {
+  konfirmasi({
+    judul: 'Hapus Data Permanen',
+    pesan: 'Data ini akan dihapus permanen dari basis data dan tidak dapat dikembalikan. ' +
+           'Berkas terkait di Google Drive tidak ikut terhapus.',
+    ya: 'Ya, Hapus Permanen', bahaya: true
+  }).then(function (ya) {
+    if (!ya) return;
+    kirim('hapusRecord', { modul: kunci, id: id }).then(function (r) {
+      if (!r.success) { toast(r.message, 'galat'); return; }
+      toast(r.message, 'sukses');
+      segarkanModul(kunci);
+    });
+  });
+}
+
+/* ── Detail record ──────────────────────────────────────────────── */
+function lihatDetail(kunci, id) {
+  var r = (Adm.boot.data[kunci] || []).filter(function (x) { return String(x.id) === String(id); })[0];
+  if (!r) { toast('Data tidak ditemukan.', 'galat'); return; }
+
+  var lewati = ['id', '__baris', 'isiNaskah', 'menimbang', 'mengingat', 'menetapkan',
+                'riwayatVerifikasi', 'berkas'];
+  var h = '<div class="tabel-bungkus"><table class="data"><tbody>';
+  Object.keys(r).forEach(function (k) {
+    if (lewati.indexOf(k) >= 0) return;
+    var v = r[k];
+    if (v === '' || v === undefined || v === null) return;
+
+    var tampilan;
+    if (String(v).indexOf('http') === 0) {
+      tampilan = '<a href="' + esc(v) + '" target="_blank" rel="noopener">Buka berkas <i class="bi bi-box-arrow-up-right"></i></a>';
+    } else if (k === 'status') {
+      tampilan = lencanaStatus(v);
+    } else if (/^(tanggal|dibuat|diperbarui)/i.test(k)) {
+      tampilan = tglJam(v);
+    } else if (/^(nomor|kode)/i.test(k)) {
+      tampilan = chipNomor(v);
+    } else {
+      tampilan = esc(String(v));
+    }
+    h += '<tr><td style="width:190px;color:var(--ink-2);font-size:12.5px">' + esc(labelKolom(k)) +
+         '</td><td>' + tampilan + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  if (r.isiNaskah) {
+    h += '<div class="label-kecil mt20 mb8">Naskah Surat</div>' +
+         '<div class="dok-pratinjau" style="max-height:280px">' + r.isiNaskah + '</div>';
+  }
+
+  bukaModal({
+    lebar: true,
+    judul: 'Detail ' + infoModul(kunci).nama,
+    sub: r.nomorSurat || r.nomorAgenda || r.nomorMOU || r.nomorSK || r.kodeArsip || '',
+    isi: h,
+    kaki: (r.pdfUrl ? '<a class="btn btn-navy" href="' + esc(r.pdfUrl) + '" target="_blank" rel="noopener">' +
+            '<i class="bi bi-file-earmark-pdf"></i> Buka PDF</a>' : '') +
+          '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>'
+  });
+}
+
+function labelKolom(k) {
+  return String(k)
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, function (c) { return c.toUpperCase(); })
+    .replace(/\bPdf\b/, 'PDF').replace(/\bUrl\b/, 'URL').replace(/\bSk\b/, 'SK')
+    .replace(/\bMou\b/, 'MOU').replace(/\bTte\b/, 'TTE').replace(/\bNidn\b/, 'NIDN');
+}
+
+function eksporModul(kunci) {
+  var kolom = KOLOM_MODUL[kunci] || [];
+  var data = Adm.boot.data[kunci] || [];
+  if (!data.length) { toast('Tidak ada data untuk diekspor.', 'peringatan'); return; }
+  unduhBerkas('e-SURAT_' + kunci + '_' + tglInput() + '.csv', keCsv(kolom, data));
+}
+
+/* ── Sidebar seluler ────────────────────────────────────────────── */
+function bukaSidebar() {
+  el('sidebar').classList.add('buka');
+  el('sbTirai').classList.add('tampil');
+}
+function tutupSidebar() {
+  el('sidebar').classList.remove('buka');
+  el('sbTirai').classList.remove('tampil');
+}
+
+/* ── Akun ───────────────────────────────────────────────────────── */
+function bukaMenuAkun() {
+  var u = Adm.boot.user || {};
+  bukaModal({
+    sempit: true,
+    judul: 'Akun Saya',
+    isi: '<div class="baris g12 mb16"><div class="avatar" style="width:48px;height:48px;font-size:16px">' +
+      inisial(u.nama) + '</div><div><div class="tebal">' + esc(u.nama) + '</div>' +
+      '<div class="tx-sm tx-3">' + esc(u.email) + '</div>' +
+      '<div class="mt4"><span class="lencana info">' + esc(u.peran) + '</span></div></div></div>' +
+      '<div class="tabel-bungkus"><table class="data"><tbody>' +
+      '<tr><td style="color:var(--ink-2)">Jabatan</td><td>' + esc(u.jabatan || '—') + '</td></tr>' +
+      '<tr><td style="color:var(--ink-2)">Masuk sejak</td><td>' + tglJam(u.masuk) + '</td></tr>' +
+      '<tr><td style="color:var(--ink-2)">Versi aplikasi</td><td class="mono">' +
+      esc(Adm.boot.versi || APP.versi) + '</td></tr></tbody></table></div>',
+    kaki: '<button class="btn btn-garis" onclick="tutupModal();bukaGantiSandi()">' +
+          '<i class="bi bi-key"></i> Ganti Kata Sandi</button>' +
+          '<button class="btn btn-bahaya" onclick="tutupModal();logout()">' +
+          '<i class="bi bi-box-arrow-right"></i> Keluar</button>'
+  });
+}
+
+function bukaGantiSandi() {
+  bukaModal({
+    sempit: true,
+    judul: 'Ganti Kata Sandi',
+    sub: 'Gunakan kombinasi yang kuat dan tidak dipakai di layanan lain.',
+    isi: bidangTeks({ id: 'sandiLama', label: 'Kata Sandi Saat Ini', tipe: 'password', wajib: true }) +
+         bidangTeks({ id: 'sandiBaru', label: 'Kata Sandi Baru', tipe: 'password', wajib: true,
+                      bantu: 'Minimal 6 karakter.' }) +
+         bidangTeks({ id: 'sandiUlang', label: 'Ulangi Kata Sandi Baru', tipe: 'password', wajib: true }),
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
+          '<button class="btn btn-utama" id="btnSandi" onclick="simpanSandi()">' +
+          '<i class="bi bi-shield-lock"></i> Perbarui Kata Sandi</button>'
+  });
+}
+
+function simpanSandi() {
+  if (!validasiForm(null, [
+    { id: 'sandiLama', wajib: true },
+    { id: 'sandiBaru', wajib: true, min: 6 },
+    { id: 'sandiUlang', wajib: true }
+  ])) return;
+
+  if (ambilNilai('sandiBaru') !== ambilNilai('sandiUlang')) {
+    tandaiGalat(el('sandiUlang'), 'Konfirmasi kata sandi tidak cocok.');
+    return;
+  }
+
+  var btn = el('btnSandi');
+  tombolSibuk(btn, true);
+  kirim('gantiPassword', { lama: ambilNilai('sandiLama'), baru: ambilNilai('sandiBaru') }).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+    tutupModal();
+    toast(r.message, 'sukses');
+  });
+}
+
+function bukaNotifikasi() {
+  var d = Adm.boot.dashboard || {};
+  var a = d.antrean || [];
+  bukaModal({
+    judul: 'Pemberitahuan',
+    sub: a.length ? a.length + ' pengajuan menunggu tindakan Anda' : 'Tidak ada pemberitahuan baru',
+    isi: a.length
+      ? a.map(function (x) {
+          return '<div class="antrean-item" onclick="tutupModal();bukaVerifikasi(\'' + x.jenis + '\',\'' +
+            x.id + '\')" style="cursor:pointer">' +
+            '<div class="avatar ai-avatar">' + inisial(x.nama) + '</div>' +
+            '<div class="ai-isi"><div class="ai-nama">' + esc(x.nama) + '</div>' +
+            '<div class="ai-perihal">' + esc(x.perihal) + '</div>' +
+            '<div class="ai-meta">' + umurTeks(x.tanggal) + ' · menunggu ' + esc(x.menunggu) + '</div></div>' +
+            '<i class="bi bi-chevron-right tx-3"></i></div>';
+        }).join('')
+      : keadaanKosong('Semua sudah tertangani', 'Tidak ada berkas yang menunggu tindakan Anda.', 'bi-bell-slash'),
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>'
+  });
+}
