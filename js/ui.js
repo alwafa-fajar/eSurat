@@ -153,45 +153,95 @@ function toast(pesan, tipe, durasi) {
   setTimeout(pergi, durasi || (tipe === 'galat' ? 7000 : 4200));
 }
 
-/* ── Modal ──────────────────────────────────────────────────────── */
-var _modalTerbuka = false;
+/* ── Modal bertumpuk (stack) ────────────────────────────────────────
+   Setiap bukaModal() membuat lapisan BARU di atas lapisan sebelumnya.
+   Ini mencegah dialog kecil (mis. "Sisip Tabel") menimpa dan
+   menghapus lembar kerja yang sedang diisi di bawahnya.
+   tutupModal() hanya menutup lapisan paling atas.
+   ─────────────────────────────────────────────────────────────────── */
+var _tumpukanModal = [];
+var _nomorModal = 0;
+
+function modalTeratas() {
+  return _tumpukanModal.length ? _tumpukanModal[_tumpukanModal.length - 1] : null;
+}
 
 function bukaModal(opsi) {
-  var tirai = el('modalTirai');
-  if (!tirai) return;
+  opsi = opsi || {};
+  _nomorModal++;
 
-  el('modalJudul').textContent = opsi.judul || '';
-  var sub = el('modalSub');
-  if (opsi.sub) { sub.textContent = opsi.sub; sub.classList.remove('sembunyi'); }
-  else sub.classList.add('sembunyi');
+  var tirai = document.createElement('div');
+  tirai.className = 'modal-tirai tampil';
+  tirai.dataset.lapis = String(_tumpukanModal.length + 1);
+  tirai.style.zIndex = String(8000 + _tumpukanModal.length * 10);
 
-  el('modalIsi').innerHTML = opsi.isi || '';
-  el('modalKaki').innerHTML = opsi.kaki || '';
-  el('modalKotak').className = 'modal' + (opsi.lebar ? ' lebar' : '') + (opsi.sempit ? ' sempit' : '');
+  tirai.innerHTML =
+    '<div class="modal' + (opsi.lebar ? ' lebar' : '') + (opsi.sempit ? ' sempit' : '') +
+      '" role="dialog" aria-modal="true">' +
+      '<div class="modal-kepala"><div>' +
+        '<h3 class="m-judul"></h3>' +
+        '<div class="m-sub' + (opsi.sub ? '' : ' sembunyi') + '"></div>' +
+      '</div>' +
+      '<button class="modal-tutup" aria-label="Tutup"><i class="bi bi-x-lg"></i></button>' +
+      '</div>' +
+      '<div class="modal-isi"></div>' +
+      '<div class="modal-kaki"></div>' +
+    '</div>';
 
-  tirai.classList.add('tampil');
+  // Judul & subjudul dipasang sebagai teks — aman dari HTML injection
+  tirai.querySelector('.m-judul').textContent = opsi.judul || '';
+  if (opsi.sub) tirai.querySelector('.m-sub').textContent = opsi.sub;
+
+  tirai.querySelector('.modal-isi').innerHTML = opsi.isi || '';
+  tirai.querySelector('.modal-kaki').innerHTML = opsi.kaki || '';
+
+  tirai.querySelector('.modal-tutup').addEventListener('click', tutupModal);
+  tirai.addEventListener('mousedown', function (e) {
+    if (e.target === tirai && !opsi.kunci) tutupModal();
+  });
+
+  document.body.appendChild(tirai);
+  _tumpukanModal.push({ node: tirai, opsi: opsi, id: _nomorModal });
   document.body.style.overflow = 'hidden';
-  _modalTerbuka = true;
 
-  if (typeof opsi.setelah === 'function') setTimeout(function () { jalankanAman(opsi.setelah, 'modal'); }, 30);
+  if (typeof opsi.setelah === 'function') {
+    setTimeout(function () { jalankanAman(opsi.setelah, 'modal'); }, 30);
+  }
 
-  setTimeout(function () {
-    var f = $('.modal-isi input:not([type=hidden]), .modal-isi select, .modal-isi textarea');
-    if (f && !opsi.tanpaFokus) f.focus();
-  }, 90);
+  if (!opsi.tanpaFokus) {
+    setTimeout(function () {
+      var f = tirai.querySelector('.modal-isi input:not([type=hidden]), ' +
+                                  '.modal-isi select, .modal-isi textarea');
+      if (f) f.focus();
+    }, 90);
+  }
+
+  return tirai;
 }
 
 function tutupModal() {
-  var tirai = el('modalTirai');
-  if (!tirai) return;
-  tirai.classList.remove('tampil');
-  document.body.style.overflow = '';
-  _modalTerbuka = false;
+  var atas = _tumpukanModal.pop();
+  if (!atas) return;
+
+  if (typeof atas.opsi.saatTutup === 'function') {
+    jalankanAman(atas.opsi.saatTutup, 'modal tutup');
+  }
+  if (atas.node.parentNode) atas.node.parentNode.removeChild(atas.node);
+  if (!_tumpukanModal.length) document.body.style.overflow = '';
+}
+
+function tutupSemuaModal() {
+  while (_tumpukanModal.length) tutupModal();
 }
 
 function konfirmasi(opsi) {
   return new Promise(function (selesai) {
-    window.__konfirmasiJawab = function (ya) { tutupModal(); selesai(ya); };
+    var kunciJawab = '__jawab' + (_nomorModal + 1);
+    window[kunciJawab] = function (ya) {
+      delete window[kunciJawab];
+      tutupModal();
+      selesai(ya);
+    };
     bukaModal({
       sempit: true,
       judul: opsi.judul || 'Konfirmasi',
@@ -200,18 +250,107 @@ function konfirmasi(opsi) {
            (opsi.bahaya ? ';background:var(--dang-bg);color:var(--dang-fg)' : '') + '">' +
            '<i class="bi ' + (opsi.ikon || (opsi.bahaya ? 'bi-exclamation-triangle' : 'bi-question-circle')) + '"></i></div>' +
            '<div class="sisa tx-md" style="line-height:1.65">' + (opsi.pesan || '') + '</div></div>',
-      kaki: '<button class="btn btn-garis" onclick="window.__konfirmasiJawab(false)">' +
+      kaki: '<button class="btn btn-garis" onclick="window.' + kunciJawab + '(false)">' +
             esc(opsi.batal || 'Batal') + '</button>' +
             '<button class="btn ' + (opsi.bahaya ? 'btn-bahaya' : 'btn-utama') +
-            '" onclick="window.__konfirmasiJawab(true)">' + esc(opsi.ya || 'Ya, Lanjutkan') + '</button>',
-      tanpaFokus: true
+            '" onclick="window.' + kunciJawab + '(true)">' + esc(opsi.ya || 'Ya, Lanjutkan') + '</button>',
+      tanpaFokus: true,
+      saatTutup: function () {
+        if (window[kunciJawab]) { delete window[kunciJawab]; selesai(false); }
+      }
     });
   });
 }
 
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape' && _modalTerbuka) tutupModal();
+  if (e.key === 'Escape' && _tumpukanModal.length) tutupModal();
 });
+
+/* ── Pratinjau berkas — selalu popup, tidak pernah buka tab baru ──── */
+
+/** Ambil ID berkas Google Drive dari berbagai bentuk URL. */
+function idDrive(url) {
+  var s = String(url || '');
+  var m = s.match(/\/file\/d\/([-\w]{20,})/) ||
+          s.match(/[?&]id=([-\w]{20,})/) ||
+          s.match(/\/d\/([-\w]{20,})/);
+  return m ? m[1] : null;
+}
+
+function urlPratinjauDrive(id) { return 'https://drive.google.com/file/d/' + id + '/preview'; }
+function urlUnduhDrive(id) { return 'https://drive.google.com/uc?export=download&id=' + id; }
+
+/**
+ * Tampilkan dokumen dalam modal — berlaku untuk seluruh aplikasi.
+ * @param url    tautan Drive, data URL, atau URL langsung
+ * @param judul  judul modal
+ * @param opsi   { sub, namaBerkas }
+ */
+function pratinjauBerkas(url, judul, opsi) {
+  opsi = opsi || {};
+  if (!url) { toast('Berkas belum tersedia untuk dokumen ini.', 'peringatan'); return; }
+
+  var id = idDrive(url);
+  var srcPratinjau = id ? urlPratinjauDrive(id) : url;
+  var srcUnduh = id ? urlUnduhDrive(id) : url;
+  var nama = opsi.namaBerkas || (judul || 'dokumen').replace(/[\/\\:*?"<>|]/g, '-');
+  var idBingkai = 'pv' + Date.now();
+
+  bukaModal({
+    lebar: true,
+    judul: judul || 'Pratinjau Dokumen',
+    sub: opsi.sub || 'Dokumen ditampilkan di jendela ini — tidak membuka tab baru.',
+    tanpaFokus: true,
+    isi:
+      '<div class="pratinjau-bingkai">' +
+        '<div class="pratinjau-muat" id="' + idBingkai + 'Muat">' +
+          '<span class="spinner"></span> Memuat dokumen…' +
+        '</div>' +
+        '<iframe id="' + idBingkai + '" src="' + esc(srcPratinjau) + '" title="Pratinjau dokumen" ' +
+          'allow="autoplay"></iframe>' +
+      '</div>' +
+      '<div class="baris g8 mt12 tx-sm tx-3" style="align-items:flex-start">' +
+        '<i class="bi bi-info-circle" style="margin-top:2px"></i>' +
+        '<div class="sisa">Bila dokumen tidak tampil, berkas mungkin belum dibagikan publik di Google Drive. ' +
+        'Gunakan tombol <b>Unduh Dokumen</b> di bawah.</div>' +
+      '</div>',
+    kaki:
+      '<a class="btn btn-navy" href="' + esc(srcUnduh) + '" download="' + esc(nama) + '" ' +
+        'target="_blank" rel="noopener"><i class="bi bi-download"></i> Unduh Dokumen</a>' +
+      '<button class="btn btn-garis" onclick="tutupModal()">' +
+        '<i class="bi bi-x-lg"></i> Tutup</button>',
+    setelah: function () {
+      var f = el(idBingkai), m = el(idBingkai + 'Muat');
+      if (!f) return;
+      f.addEventListener('load', function () { if (m) m.style.display = 'none'; });
+      setTimeout(function () { if (m) m.style.display = 'none'; }, 6000);
+    }
+  });
+}
+
+/** Pratinjau PDF hasil generate (base64) — dipakai tombol Pratinjau surat. */
+function pratinjauPdfBase64(base64, namaBerkas, judul, sub) {
+  var src = 'data:application/pdf;base64,' + base64;
+  bukaModal({
+    lebar: true,
+    judul: judul || 'Pratinjau Lembar Resmi',
+    sub: sub || '',
+    tanpaFokus: true,
+    isi: '<div class="pratinjau-bingkai"><iframe src="' + src + '" title="Pratinjau PDF"></iframe></div>',
+    kaki: '<a class="btn btn-navy" href="' + src + '" download="' + esc(namaBerkas || 'pratinjau.pdf') + '">' +
+          '<i class="bi bi-download"></i> Unduh Pratinjau</a>' +
+          '<button class="btn btn-garis" onclick="tutupModal()"><i class="bi bi-x-lg"></i> Tutup</button>'
+  });
+}
+
+/** Tombol pratinjau ringkas untuk dipakai di kolom aksi tabel. */
+function tombolPratinjau(url, judul, ikon, tip) {
+  if (!url) return '';
+  return '<button class="btn btn-hantu btn-ikon" title="' + esc(tip || 'Pratinjau dokumen') +
+    '" onclick="pratinjauBerkas(\'' + esc(url).replace(/'/g, '') + '\',\'' +
+    esc(String(judul || 'Dokumen').replace(/'/g, '')) + '\')">' +
+    '<i class="bi ' + (ikon || 'bi-file-earmark-pdf') + '"></i></button>';
+}
 
 /* ── Status tombol saat memproses ───────────────────────────────── */
 function tombolSibuk(btn, sibuk, teksSibuk) {
@@ -295,7 +434,18 @@ function selKolom(r, k) {
     case 'tanggal':   return '<span class="tnum">' + tgl(v) + '</span>';
     case 'status':    return lencanaStatus(v);
     case 'utama':     return '<div class="t-judul">' + esc(potong(v, 82)) + '</div>';
-    case 'lencana':   return v ? '<span class="lencana neut">' + esc(v) + '</span>' : '<span class="tx-3">—</span>';
+    case 'lencana':
+      if (v === true || String(v) === 'true') {
+        return '<span class="lencana ok"><i class="bi bi-check-circle"></i>Aktif</span>';
+      }
+      if (v === false || String(v) === 'false') {
+        return '<span class="lencana neut"><i class="bi bi-slash-circle"></i>Nonaktif</span>';
+      }
+      return v ? '<span class="lencana neut">' + esc(v) + '</span>' : '<span class="tx-3">—</span>';
+    case 'wajibOpsional':
+      return (String(v) === 'true' || v === true)
+        ? '<span class="lencana emas"><i class="bi bi-asterisk"></i>Wajib</span>'
+        : '<span class="lencana neut"><i class="bi bi-dash-circle"></i>Opsional</span>';
     case 'rupiah':    return '<span class="mono">' + rupiah(v) + '</span>';
     case 'kadaluarsa': {
       if (!v) return '<span class="tx-3">—</span>';
@@ -351,7 +501,10 @@ function editorNaskah(id, isiAwal, placeholder, tinggi) {
       tblEditor(id, 'redo', 'bi-arrow-clockwise', 'Ulangi') +
     '</div>' +
     '<div class="editor-isi" id="' + id + '" contenteditable="true" data-kosong="' +
-      esc(placeholder || 'Ketik naskah surat di sini…') + '"' + t + '>' + (isiAwal || '') + '</div>' +
+      esc(placeholder || 'Ketik naskah surat di sini…') + '"' + t +
+      ' onkeyup="simpanSeleksiEditor(\'' + id + '\')"' +
+      ' onmouseup="simpanSeleksiEditor(\'' + id + '\')"' +
+      ' onblur="simpanSeleksiEditor(\'' + id + '\')">' + (isiAwal || '') + '</div>' +
     '</div>';
 }
 
@@ -367,16 +520,58 @@ function perintahEditor(id, perintah) {
   try { document.execCommand(perintah, false, null); } catch (err) {}
 }
 
+/* Simpan posisi kursor editor agar tidak hilang saat dialog dibuka di atasnya */
+var _seleksiEditor = { id: null, range: null };
+
+function simpanSeleksiEditor(id) {
+  try {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount) { _seleksiEditor = { id: id, range: null }; return; }
+    var r = sel.getRangeAt(0);
+    var e = el(id);
+    _seleksiEditor = { id: id, range: (e && e.contains(r.commonAncestorContainer)) ? r.cloneRange() : null };
+  } catch (err) { _seleksiEditor = { id: id, range: null }; }
+}
+
+function pulihkanSeleksiEditor(id) {
+  var e = el(id);
+  if (!e) return false;
+  e.focus();
+  try {
+    if (_seleksiEditor.id === id && _seleksiEditor.range) {
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(_seleksiEditor.range);
+      return true;
+    }
+    // Belum pernah menaruh kursor — tempatkan di akhir naskah
+    var sel2 = window.getSelection();
+    var r = document.createRange();
+    r.selectNodeContents(e);
+    r.collapse(false);
+    sel2.removeAllRanges();
+    sel2.addRange(r);
+    return true;
+  } catch (err) { return false; }
+}
+
+/**
+ * Dialog sisip tabel.
+ * Dibuka sebagai lapisan modal BARU di atas lembar kerja — naskah yang
+ * sedang diketik tetap utuh dan tidak terhapus saat dialog ditutup.
+ */
 function sisipTabelEditor(id) {
+  simpanSeleksiEditor(id);
   bukaModal({
     sempit: true,
     judul: 'Sisipkan Tabel',
+    sub: 'Lembar kerja Anda tetap terbuka di belakang dialog ini.',
     isi: '<div class="grid-2">' +
       '<div class="bidang"><label>Jumlah Baris</label>' +
       '<input type="number" id="tblBaris" value="3" min="1" max="20"></div>' +
       '<div class="bidang"><label>Jumlah Kolom</label>' +
       '<input type="number" id="tblKolom" value="3" min="1" max="10"></div></div>' +
-      '<div class="bidang"><label class="baris g8"><input type="checkbox" id="tblHeader" checked ' +
+      '<div class="bidang mb0"><label class="baris g8"><input type="checkbox" id="tblHeader" checked ' +
       'style="width:auto"> Baris pertama sebagai judul kolom</label></div>',
     kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
           '<button class="btn btn-utama" onclick="terapkanTabelEditor(\'' + id + '\')">' +
@@ -385,9 +580,9 @@ function sisipTabelEditor(id) {
 }
 
 function terapkanTabelEditor(id) {
-  var b = Math.min(20, Math.max(1, parseInt(el('tblBaris').value, 10) || 3));
-  var k = Math.min(10, Math.max(1, parseInt(el('tblKolom').value, 10) || 3));
-  var pakaiHeader = el('tblHeader').checked;
+  var b = Math.min(20, Math.max(1, parseInt(ambilNilai('tblBaris'), 10) || 3));
+  var k = Math.min(10, Math.max(1, parseInt(ambilNilai('tblKolom'), 10) || 3));
+  var pakaiHeader = !!(el('tblHeader') && el('tblHeader').checked);
 
   var h = '<table><tbody>';
   for (var i = 0; i < b; i++) {
@@ -399,12 +594,17 @@ function terapkanTabelEditor(id) {
   }
   h += '</tbody></table><p><br></p>';
 
-  tutupModal();
+  tutupModal();                 // hanya menutup dialog tabel, lembar kerja tetap terbuka
+
   var e = el(id);
-  if (!e) return;
-  e.focus();
-  try { document.execCommand('insertHTML', false, h); }
-  catch (err) { e.innerHTML += h; }
+  if (!e) { toast('Lembar kerja tidak ditemukan.', 'galat'); return; }
+
+  pulihkanSeleksiEditor(id);
+  var berhasil = false;
+  try { berhasil = document.execCommand('insertHTML', false, h); } catch (err) { berhasil = false; }
+  if (!berhasil) e.innerHTML += h;   // jalur cadangan — naskah lama tetap dipertahankan
+
+  toast('Tabel ' + b + ' × ' + k + ' disisipkan ke naskah.', 'sukses');
 }
 
 function ambilEditor(id) {
@@ -464,6 +664,23 @@ function validasiForm(form, aturan) {
     return false;
   }
   return true;
+}
+
+/** Pasang logo institusi sebagai favicon tab peramban. */
+function pasangFavicon(url) {
+  try {
+    var tautan = document.querySelector("link[rel~='icon']");
+    if (!tautan) {
+      tautan = document.createElement('link');
+      tautan.rel = 'icon';
+      document.head.appendChild(tautan);
+    }
+    tautan.href = url || 'data:image/svg+xml,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+      '<rect width="64" height="64" rx="14" fill="#1E3A5F"/>' +
+      '<path d="M14 22h36v22H14z" fill="none" stroke="#F5A623" stroke-width="4"/>' +
+      '<path d="M14 24l18 13 18-13" fill="none" stroke="#F5A623" stroke-width="4"/></svg>');
+  } catch (e) {}
 }
 
 /* ── Tema terang / gelap ────────────────────────────────────────── */

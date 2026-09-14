@@ -36,11 +36,35 @@ var Sesi = {
     this.user = null;
     try {
       sessionStorage.removeItem(APP.kunciSesi);
+      sessionStorage.removeItem(APP.kunciBoot);
       localStorage.removeItem(APP.kunciSesi);
     } catch (e) {}
   },
 
   ada: function () { return !!this.token; },
+
+  /* Snapshot panel admin — dipakai agar dashboard tampil seketika
+     saat halaman dibuka ulang, tanpa menunggu server. */
+  simpanBoot: function (boot) {
+    try {
+      sessionStorage.setItem(APP.kunciBoot, JSON.stringify({ waktu: Date.now(), boot: boot }));
+    } catch (e) { /* kuota penuh — snapshot bersifat opsional */ }
+  },
+
+  ambilBoot: function (maksUmurMs) {
+    try {
+      var s = sessionStorage.getItem(APP.kunciBoot);
+      if (!s) return null;
+      var o = JSON.parse(s);
+      if (!o || !o.boot) return null;
+      if (maksUmurMs && (Date.now() - o.waktu) > maksUmurMs) return null;
+      return o.boot;
+    } catch (e) { return null; }
+  },
+
+  hapusBoot: function () {
+    try { sessionStorage.removeItem(APP.kunciBoot); } catch (e) {}
+  },
 
   boleh: function (kemampuan) {
     if (!this.user) return false;

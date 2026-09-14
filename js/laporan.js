@@ -177,8 +177,7 @@ function gambarTabelLaporan() {
     ikonKosong: 'bi-calendar-x',
     aksi: function (r) {
       return r.pdfUrl
-        ? '<a class="btn btn-hantu btn-ikon" title="Buka berkas" target="_blank" rel="noopener" href="' +
-          esc(r.pdfUrl) + '"><i class="bi bi-file-earmark-pdf"></i></a>'
+        ? tombolPratinjau(r.pdfUrl, r.nomor, 'bi-file-earmark-pdf', 'Pratinjau dokumen')
         : '<span class="tx-3 tx-xs">—</span>';
     }
   });

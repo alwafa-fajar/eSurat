@@ -62,15 +62,19 @@ function prosesLogin(e) {
   }
 
   tombolSibuk(btn, true, 'Memverifikasi…');
-  kirim('login', { email: email, password: sandi }).then(function (r) {
+
+  // muatPanel:true → server mengembalikan token DAN data panel sekaligus,
+  // memangkas satu perjalanan penuh ke server menuju dashboard.
+  kirim('login', { email: email, password: sandi, muatPanel: true }).then(function (r) {
     tombolSibuk(btn, false);
     if (!r.success) { toast(r.message, 'galat'); return; }
 
     Sesi.simpan(r.data.token, r.data.user);
     el('loginSandi').value = '';
+    el('loginEmail').value = '';
     toast(r.message, 'sukses');
     tampilkanLapisan('admin');
-    muatPanelAdmin();
+    muatPanelAdmin(r.data.boot);
   });
 }
 
@@ -178,6 +182,16 @@ function mulaiAplikasi() {
     Sesi.muat();
     if (Sesi.ada()) {
       statusMuat('Memulihkan sesi administrasi…');
+      // Snapshot panel dari kunjungan sebelumnya → dashboard tampil seketika
+      var snapshot = Sesi.ambilBoot(30 * 60 * 1000);
+      if (snapshot) {
+        tampilkanLapisan('admin');
+        jalankanAman(function () { muatPanelAdmin(snapshot); }, 'Panel');
+        sembunyikanLoading();
+        segarkanPanelDiamDiam();
+        return;
+      }
+
       return kirim('validateSession', {}).then(function (s) {
         if (s.success) {
           Sesi.simpan(Sesi.token, s.data);
@@ -263,12 +277,6 @@ document.addEventListener('DOMContentLoaded', function () {
     } else {
       renderModul(Adm.modulAktif);
     }
-  });
-
-  /* Tutup modal saat menekan latar */
-  var tirai = el('modalTirai');
-  if (tirai) tirai.addEventListener('mousedown', function (e) {
-    if (e.target === tirai) tutupModal();
   });
 
   /* Mulai */

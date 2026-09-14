@@ -1,4 +1,4 @@
-# e-SURAT v4.0
+# e-SURAT v4.1
 
 **Sistem Persuratan & Kearsipan Digital** untuk perguruan tinggi.
 Frontend statis (GitHub Pages) + Google Apps Script sebagai REST API murni.
@@ -37,7 +37,7 @@ esurat-frontend/          ← root repository (git init di sini)
     ├── surat.js          ← generator Surat Keluar, SK, Berita Acara
     ├── verifikasi.js     ← antrean & panel verifikasi berjenjang
     ├── laporan.js        ← rekapitulasi, SLA, grafik, cetak & ekspor
-    ├── pengaturan.js     ← 17 tab pengaturan & seluruh master data
+    ├── pengaturan.js     ← 18 tab pengaturan & seluruh master data
     └── app.js            ← titik masuk, autentikasi, penangkap galat
 ```
 
@@ -64,7 +64,17 @@ Backend (9 berkas `.gs`) diserahkan terpisah dan **tidak** termasuk di repositor
 - MOU — pemantauan masa berlaku, peringatan 60 hari sebelum berakhir
 - Verifikasi berjenjang split-view, mode bypass Super Admin, penerbitan Surat Keterangan
 - Arsip dokumen penting, laporan & rekap dengan capaian SLA, ekspor CSV, cetak resmi
-- 17 tab pengaturan + CRUD seluruh master data
+- 18 tab pengaturan + CRUD seluruh master data
+
+### Baru di v4.1
+- **Berkas syarat dapat dikonfigurasi** — admin menentukan slot unggahan portal beserta status Wajib / Opsional
+- **Semua pratinjau dokumen berupa popup** dengan tombol Unduh & Tutup — tidak pernah membuka tab baru
+- **Detail dokumen dua kolom** — rincian data di kiri, pratinjau dokumen langsung di kanan
+- **Aksi baris lengkap** — Detail, Pratinjau, Ubah, Unggah Scan Asli, Hapus
+- **Arsip surat asli bertanda tangan basah** — unggah hasil pindai pada setiap dokumen terbit
+- **Dialog bertingkat aman** — menyisipkan tabel tidak lagi menutup lembar kerja
+- **Logo aplikasi diunggah sebagai gambar** (thumbnail), bukan tempel URL
+- **Masuk tanpa jeda** — login + data panel dalam satu permintaan, plus snapshot panel di peramban
 
 ### Lintas fitur
 - Mode terang & gelap, responsif hingga lebar 360 px

@@ -1,4 +1,4 @@
-# PANDUAN INSTALASI — e-SURAT v4.0
+# PANDUAN INSTALASI — e-SURAT v4.1
 
 Sistem Persuratan & Kearsipan Digital
 **Backend:** Google Apps Script (REST API JSON) · **Frontend:** GitHub Pages
@@ -109,7 +109,7 @@ Selanjutnya:
 
 | Kolom | Nilai |
 |---|---|
-| Description | e-SURAT v4.0 |
+| Description | e-SURAT v4.1 |
 | Execute as | **Me (email Anda)** |
 | Who has access | **Anyone** |
 
@@ -340,6 +340,104 @@ GitHub Pages rebuild otomatis 1–2 menit. Bila masih versi lama → **Ctrl+Shif
 
 ---
 
+# BAGIAN E — MEMPERBARUI DARI v4.0 KE v4.1
+
+Bila e-SURAT **sudah pernah terpasang** dan kini Anda memasang berkas v4.1, ikuti tiga langkah ini.
+Data lama tidak akan hilang — migrasi hanya **menambah** sheet dan kolom baru.
+
+### E1. Ganti kesembilan berkas `.gs`
+
+Buka editor Apps Script → buka tiap berkas → **pilih seluruh isi (Ctrl+A) → tempel isi baru** → **Ctrl+S**.
+
+### E2. Jalankan migrasi skema — WAJIB
+
+1. Klik berkas **`Kode.gs`** di daftar berkas
+2. Dropdown fungsi → pilih **`MIGRASI_SKEMA`** → **Run**
+3. Tunggu sampai log menampilkan "Migrasi selesai"
+
+Migrasi ini menambahkan:
+
+| Yang ditambahkan | Keterangan |
+|---|---|
+| Sheet **`Master_Berkas_Syarat`** | Daftar berkas persyaratan portal + status Wajib/Opsional (terisi 8 baris bawaan) |
+| Kolom **`fileScanUrl`** pada `Berita_Acara`, `MOU`, `Arsip_Dokumen_Penting`, `Surat_Keterangan` | Menyimpan tautan hasil pindai surat asli bertanda tangan basah |
+| Kolom **`diperbarui`** | Jejak waktu perubahan terakhir tiap data |
+| Konfigurasi **`INSTITUSI_LOGO`** & **`INSTITUSI_LOGO_ID`** | Logo aplikasi hasil unggahan gambar |
+
+### E3. Deploy versi baru + ganti berkas frontend
+
+1. **Deploy** → **Manage deployments** → ikon pensil ✏ → **Version: New version** → **Deploy**
+2. Ganti seluruh isi folder frontend dengan yang baru, **isi kembali `GAS_URL` pada `js/config.js`**, lalu `git add . && git commit -m "Upgrade v4.1" && git push`
+3. Buka aplikasi dengan **Ctrl+Shift+R** (hard refresh) agar berkas JavaScript lama tidak dipakai ulang
+
+---
+
+# BAGIAN F — FITUR BARU v4.1
+
+## F1. Berkas persyaratan: Wajib atau Opsional dapat diatur
+
+**Pengaturan → Berkas Syarat Pengajuan.**
+
+Setiap baris menentukan satu slot unggahan pada portal publik: berlaku untuk pengajuan
+**mahasiswa** atau **dosen**, nama berkas, keterangan, urutan tampil, dan **Sifat: Wajib / Opsional**.
+
+- Slot **Wajib** → pemohon tidak dapat mengirim formulir sebelum berkas itu diunggah
+- Slot **Opsional** → boleh dikosongkan
+- Menonaktifkan baris (Status → Nonaktif) menyembunyikan slot dari portal tanpa menghapus datanya
+- Perubahan berlaku seketika di portal publik, tanpa deploy ulang
+
+Kolom **Kunci** adalah nama teknis yang tersimpan bersama berkas pemohon — biarkan apa adanya kecuali Anda paham akibatnya.
+
+## F2. Semua pratinjau dokumen tampil sebagai popup
+
+Di mana pun dokumen dibuka — portal publik, tabel admin, panel verifikasi, laporan, atau arsip —
+dokumen tampil di **jendela popup di dalam aplikasi**, tidak pernah membuka tab baru.
+Setiap popup menyediakan tombol **Unduh Dokumen** dan **Tutup**.
+
+## F3. Aksi baris lebih lengkap + pratinjau berdampingan
+
+Kolom Aksi tiap tabel kini berisi: **Detail · Pratinjau · Ubah · Unggah Scan Asli · Hapus**
+(menyesuaikan hak akses dan status dokumen).
+
+Jendela **Detail** kini terbagi dua kolom: rincian data di kiri, **pratinjau dokumen langsung di kanan**,
+lengkap dengan tombol **Unduh**, **Ganti Scan Asli**, serta **Edit Data** dan **Hapus** di bagian bawah.
+Tombol "buka PDF" terpisah tidak diperlukan lagi.
+
+## F4. Arsip surat asli bertanda tangan basah
+
+Setiap dokumen yang sudah digenerate/dicetak dapat dilampiri **hasil pindai surat aslinya**.
+
+1. Klik ikon **Unggah Scan Asli** pada baris data, atau tombol serupa di jendela Detail
+2. Pilih berkas PDF/gambar hasil pindai (maksimal sesuai batas pada Pengaturan → Tampilan & Dokumen)
+3. Berkas tersimpan di Google Drive dan tampil sebagai **Arsip Scan Asli (Tanda Tangan Basah)**
+   terpisah dari PDF terbitan sistem, sehingga keduanya dapat dibandingkan
+
+## F5. Lembar kerja tidak lagi tertutup saat menyisipkan tabel
+
+Dialog **Sisipkan Tabel** kini terbuka sebagai lapisan baru **di atas** lembar kerja.
+Menekan **Sisipkan** atau **Batal** hanya menutup dialog itu — naskah, perihal, dan seluruh
+isian yang sudah diketik tetap utuh, dan tabel disisipkan tepat pada posisi kursor terakhir.
+Perilaku yang sama berlaku untuk seluruh dialog bertingkat di aplikasi (konfirmasi, unggah, edit dari detail).
+
+## F6. Logo aplikasi diunggah sebagai gambar
+
+**Pengaturan → Identitas Institusi → Logo Aplikasi.**
+
+Klik **Pilih Gambar Logo** → pilih berkas PNG/JPG/WEBP (maksimal 2 MB, disarankan persegi minimal 256×256)
+→ **Unggah & Terapkan**. Logo langsung dipakai pada navigasi portal publik, panel admin, dan favicon
+halaman. Tombol **Pakai Lambang Bawaan** mengembalikan tampilan semula.
+
+## F7. Masuk ke dashboard tanpa jeda
+
+- Proses **login sekaligus mengambil data panel** dalam satu permintaan — satu perjalanan penuh ke
+  server dihemat (terukur ± 0,5 detik sampai dashboard tampil)
+- Membuka ulang halaman memakai **snapshot panel** yang tersimpan di peramban: dashboard tampil
+  seketika, lalu data disegarkan diam-diam di latar belakang
+- Snapshot otomatis kedaluwarsa setelah 30 menit dan terhapus saat Keluar
+
+
+---
+
 # TROUBLESHOOTING
 
 | Gejala | Penyebab | Solusi |
@@ -349,6 +447,10 @@ GitHub Pages rebuild otomatis 1–2 menit. Bila masih versi lama → **Ctrl+Shif
 | "Server mengembalikan halaman HTML" | URL salah (berakhiran `/dev`) atau deployment lama | Pakai URL `/exec` dari deployment terbaru |
 | "Server tidak merespons dalam 25 detik" | `setupAppEnvironment()` belum dijalankan | Jalankan fungsi tersebut, cek Execution log |
 | Sheet "..." tidak ditemukan | Skema belum lengkap | Jalankan `MIGRASI_SKEMA` dari `Kode.gs` |
+| Tab "Berkas Syarat Pengajuan" kosong | Sheet baru belum dibuat | Jalankan `MIGRASI_SKEMA` dari `Kode.gs`, lalu muat ulang halaman |
+| Slot unggahan portal masih daftar lama | Berkas JavaScript lama masih di-cache peramban | Tekan **Ctrl+Shift+R** (hard refresh) |
+| Pratinjau popup tampil kosong | Berkas di Drive belum dibagikan publik | Buka berkas di Drive → Bagikan → "Siapa saja yang memiliki link" → Pelihat; atau pakai tombol **Unduh Dokumen** |
+| Logo hasil unggah tidak muncul | Perubahan konfigurasi belum termuat | Muat ulang halaman dengan Ctrl+Shift+R |
 | `setupAppEnvironment` tidak ada di dropdown | Dropdown hanya menampilkan fungsi berkas aktif | Klik `Setup.gs` dulu, atau jalankan `PASANG_APLIKASI` dari `Kode.gs` |
 | Tidak yakin pemasangan berhasil | — | Jalankan `CEK_PEMASANGAN` dari `Kode.gs`, baca Execution log |
 | Halaman 404 GitHub Pages | `git init` di folder induk | Lihat **Prosedur Perbaikan** di bawah |
@@ -416,4 +518,4 @@ git push -u origin main --force
 
 ---
 
-*e-SURAT v4.0 · Arsitektur GAS-PRO-API · Dokumentasi dalam Bahasa Indonesia*
+*e-SURAT v4.1 · Arsitektur GAS-PRO-API · Dokumentasi dalam Bahasa Indonesia*

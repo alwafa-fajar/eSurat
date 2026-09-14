@@ -21,10 +21,11 @@ var GAS_URL = 'https://script.google.com/macros/s/AKfycbygr6PBksCTw41Ljv8tIZnTtK
 /* ── Pengaturan aplikasi klien ──────────────────────────────────── */
 var APP = {
   nama: 'e-SURAT',
-  versi: '4.0.0',
+  versi: '4.1.0',
 
   // Kunci penyimpanan lokal peramban
   kunciSesi: 'esurat_sesi',
+  kunciBoot: 'esurat_panel',
   kunciTema: 'esurat_tema',
   kunciDrafMhs: 'esurat_draf_mahasiswa',
   kunciDrafDsn: 'esurat_draf_dosen',

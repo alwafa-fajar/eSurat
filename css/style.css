@@ -463,6 +463,40 @@ table.data .num { font-variant-numeric: tabular-nums; text-align: right; }
   padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface-2);
   border-radius: 0 0 var(--r-xl) var(--r-xl);
 }
+.modal-kaki:empty { display: none; }
+
+/* Lapisan modal bertumpuk — makin dalam makin gelap latarnya */
+.modal-tirai[data-lapis="2"] { background: rgba(22,41,63,.42); }
+.modal-tirai[data-lapis="3"] { background: rgba(22,41,63,.34); }
+
+/* ── Bingkai pratinjau dokumen ───────────────────────────────────── */
+.pratinjau-bingkai {
+  position: relative; width: 100%; height: 64vh; min-height: 340px;
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  overflow: hidden; background: var(--surface-3);
+}
+.pratinjau-bingkai iframe { width: 100%; height: 100%; border: none; display: block; }
+.pratinjau-muat {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  gap: 10px; font-size: 13px; color: var(--ink-3); background: var(--surface-2); z-index: 1;
+}
+@media (max-width: 768px) {
+  .pratinjau-bingkai { height: 56vh; min-height: 260px; }
+}
+
+/* ── Pratinjau berdampingan pada modal detail ────────────────────── */
+.detail-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.05fr); gap: 16px; align-items: start; }
+.detail-grid > * { min-width: 0; }
+@media (max-width: 1000px) { .detail-grid { grid-template-columns: minmax(0,1fr); } }
+
+.thumb-logo {
+  width: 74px; height: 74px; flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface-2); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-3); font-size: 22px;
+}
+.thumb-logo img { width: 100%; height: 100%; object-fit: contain; }
 
 /* ── 12. TOAST ───────────────────────────────────────────────────── */
 #toastWadah {

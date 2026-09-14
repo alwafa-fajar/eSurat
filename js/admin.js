@@ -11,20 +11,54 @@ var Adm = {
   grafik: {}             // instance Chart.js
 };
 
-/* ── Muat panel admin ───────────────────────────────────────────── */
-function muatPanelAdmin() {
-  el('admKonten').innerHTML = keadaanMemuat('Memuat panel administrasi…');
+/* ── Muat panel admin ─────────────────────────────────────────────
+   Tiga jalur, dari paling cepat:
+   1. bootAwal  — data ikut pada respons login (0 panggilan tambahan)
+   2. snapshot  — hasil kunjungan sebelumnya di sessionStorage (tampil
+                  seketika, lalu disegarkan diam-diam di latar belakang)
+   3. server    — panggilan bootstrapAdmin penuh
+   ─────────────────────────────────────────────────────────────────── */
+function pasangPanel(boot) {
+  Adm.boot = boot;
+  Sesi.simpanBoot(boot);
+  renderKerangkaAdmin();
+  renderModul(Adm.modulAktif);
+}
 
+function muatPanelAdmin(bootAwal) {
+  // Jalur 1 — data panel sudah dibawa bersama respons login
+  if (bootAwal) { pasangPanel(bootAwal); return Promise.resolve(true); }
+
+  // Jalur 2 — tampilkan snapshot lebih dulu agar dashboard langsung terlihat
+  var snapshot = Sesi.ambilBoot(30 * 60 * 1000);
+  if (snapshot) {
+    pasangPanel(snapshot);
+    segarkanPanelDiamDiam();
+    return Promise.resolve(true);
+  }
+
+  // Jalur 3 — muat penuh dari server
+  el('admKonten').innerHTML = keadaanMemuat('Memuat panel administrasi…');
   return kirim('bootstrapAdmin', {}).then(function (r) {
     if (!r.success) {
       el('admKonten').innerHTML = keadaanKosong('Panel gagal dimuat', r.message, 'bi-exclamation-triangle',
         '<button class="btn btn-utama" onclick="muatPanelAdmin()">Coba Lagi</button>');
       return false;
     }
-    Adm.boot = r.data;
-    renderKerangkaAdmin();
-    renderModul(Adm.modulAktif);
+    pasangPanel(r.data);
     return true;
+  });
+}
+
+/** Segarkan data panel di latar belakang tanpa mengganggu tampilan. */
+function segarkanPanelDiamDiam() {
+  kirim('bootstrapAdmin', {}).then(function (r) {
+    if (!r.success) return;
+    Adm.boot = r.data;
+    Sesi.simpanBoot(r.data);
+    renderKerangkaAdmin();
+    // Gambar ulang hanya bila pengguna belum berpindah / membuka dialog
+    if (!_tumpukanModal.length) renderModul(Adm.modulAktif);
   });
 }
 
@@ -39,7 +73,10 @@ function renderKerangkaAdmin() {
   el('admNama').textContent = u.jabatan || u.nama;
   el('admEmail').textContent = u.email;
   el('admAvatar').textContent = inisial(u.nama);
-  if (cfg.INSTITUSI_LOGO) el('admLogo').innerHTML = '<img src="' + esc(cfg.INSTITUSI_LOGO) + '" alt="">';
+  el('admLogo').innerHTML = cfg.INSTITUSI_LOGO
+    ? '<img src="' + esc(cfg.INSTITUSI_LOGO) + '" alt="Logo institusi">'
+    : '<i class="bi bi-envelope-paper-fill"></i>';
+  pasangFavicon(cfg.INSTITUSI_LOGO);
 
   renderSidebar();
 
@@ -274,8 +311,9 @@ function panelTerbaru(d) {
         '<div class="d-kaki"><span><i class="bi bi-pen"></i> ' + esc(potong(x.pejabat || '-', 34)) + '</span>' +
         '<span><i class="bi bi-calendar3"></i> ' + tgl(x.tanggal) + '</span>' +
         '<div class="sisa"></div>' +
-        (x.pdfUrl ? '<a class="btn btn-garis btn-sm" href="' + esc(x.pdfUrl) + '" target="_blank" rel="noopener">' +
-          '<i class="bi bi-download"></i> PDF Resmi</a>' : '') + '</div></div>';
+        (x.pdfUrl ? '<button class="btn btn-garis btn-sm" onclick="pratinjauBerkas(\'' +
+          esc(x.pdfUrl) + '\',\'' + esc(String(x.nomor || 'Dokumen').replace(/'/g, '')) + '\')">' +
+          '<i class="bi bi-eye"></i> Lihat PDF Resmi</button>' : '') + '</div></div>';
     }).join('');
 
     h += '<div class="baris antara g10 mt12 bungkus">' +
@@ -430,12 +468,15 @@ function renderModulUmum(w, kunci) {
         var a = '<button class="btn btn-hantu btn-ikon" title="Lihat detail" onclick="lihatDetail(\'' +
                 kunci + '\',\'' + r.id + '\')"><i class="bi bi-eye"></i></button>';
         if (r.fileScanUrl || r.fileUrl) {
-          a += '<a class="btn btn-hantu btn-ikon" title="Buka berkas" target="_blank" rel="noopener" href="' +
-               esc(r.fileScanUrl || r.fileUrl) + '"><i class="bi bi-paperclip"></i></a>';
+          a += tombolPratinjau(r.fileScanUrl || r.fileUrl,
+                 r.namaDokumen || r.perihal || r.nomorAgenda || 'Lampiran',
+                 'bi-paperclip', 'Pratinjau lampiran');
         }
         if (bolehTulis) {
           a += '<button class="btn btn-hantu btn-ikon" title="Ubah" onclick="bukaFormModul(\'' + kunci +
                '\',\'' + r.id + '\')"><i class="bi bi-pencil"></i></button>';
+          a += '<button class="btn btn-hantu btn-ikon" title="Unggah scan asli" onclick="bukaUnggahScan(\'' +
+               kunci + '\',\'' + r.id + '\')"><i class="bi bi-upload"></i></button>';
         }
         if (Sesi.boleh('hapus')) {
           a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'' + kunci +
@@ -646,14 +687,43 @@ function hapusData(kunci, id) {
   });
 }
 
-/* ── Detail record ──────────────────────────────────────────────── */
+/* ── Detail record — data di kiri, pratinjau dokumen di kanan ───── */
+
+/** Arahkan ke editor yang sesuai untuk tiap modul. */
+function bukaEditModul(kunci, id) {
+  tutupModal();
+  setTimeout(function () {
+    jalankanAman(function () {
+      if (kunci === 'suratKeluar') return bukaGeneratorSurat(id);
+      if (kunci === 'sk') return bukaGeneratorSK(id);
+      if (kunci === 'beritaAcara') {
+        var r = (Adm.boot.data.beritaAcara || []).filter(function (x) { return String(x.id) === String(id); })[0];
+        return bukaFormBA((r && r.kategori) || 'BERITA_ACARA', id);
+      }
+      return bukaFormModul(kunci, id);
+    }, 'Editor ' + kunci);
+  }, 120);
+}
+
+/** Dokumen utama sebuah record — dipakai untuk pratinjau berdampingan. */
+function berkasUtama_(r) {
+  return r.pdfUrl || r.fileScanUrl || r.fileUrl || r.audioUrl || '';
+}
+
 function lihatDetail(kunci, id) {
   var r = (Adm.boot.data[kunci] || []).filter(function (x) { return String(x.id) === String(id); })[0];
   if (!r) { toast('Data tidak ditemukan.', 'galat'); return; }
 
+  var nomor = r.nomorSurat || r.nomorAgenda || r.nomorMOU || r.nomorSK ||
+              r.nomorDokumen || r.kodeArsip || '';
+  var judulDok = nomor || r.perihal || r.namaDokumen || 'Dokumen';
+
   var lewati = ['id', '__baris', 'isiNaskah', 'menimbang', 'mengingat', 'menetapkan',
                 'riwayatVerifikasi', 'berkas'];
-  var h = '<div class="tabel-bungkus"><table class="data"><tbody>';
+
+  /* ── Kolom kiri: rincian data ── */
+  var kiri = '<div class="label-kecil mb8">Rincian Data</div>' +
+             '<div class="tabel-bungkus"><table class="data"><tbody>';
   Object.keys(r).forEach(function (k) {
     if (lewati.indexOf(k) >= 0) return;
     var v = r[k];
@@ -661,34 +731,151 @@ function lihatDetail(kunci, id) {
 
     var tampilan;
     if (String(v).indexOf('http') === 0) {
-      tampilan = '<a href="' + esc(v) + '" target="_blank" rel="noopener">Buka berkas <i class="bi bi-box-arrow-up-right"></i></a>';
+      tampilan = '<button class="btn btn-garis btn-sm" onclick="pratinjauBerkas(\'' + esc(v) +
+        '\',\'' + esc(labelKolom(k)) + '\')"><i class="bi bi-eye"></i> Lihat Berkas</button>';
     } else if (k === 'status') {
       tampilan = lencanaStatus(v);
     } else if (/^(tanggal|dibuat|diperbarui)/i.test(k)) {
       tampilan = tglJam(v);
     } else if (/^(nomor|kode)/i.test(k)) {
       tampilan = chipNomor(v);
+    } else if (v === true || v === false || String(v) === 'true' || String(v) === 'false') {
+      tampilan = (v === true || String(v) === 'true')
+        ? '<span class="lencana ok"><i class="bi bi-check-circle"></i>Ya</span>'
+        : '<span class="lencana neut"><i class="bi bi-dash-circle"></i>Tidak</span>';
     } else {
       tampilan = esc(String(v));
     }
-    h += '<tr><td style="width:190px;color:var(--ink-2);font-size:12.5px">' + esc(labelKolom(k)) +
-         '</td><td>' + tampilan + '</td></tr>';
+    kiri += '<tr><td style="width:170px;color:var(--ink-2);font-size:12.5px">' + esc(labelKolom(k)) +
+            '</td><td>' + tampilan + '</td></tr>';
   });
-  h += '</tbody></table></div>';
+  kiri += '</tbody></table></div>';
 
   if (r.isiNaskah) {
-    h += '<div class="label-kecil mt20 mb8">Naskah Surat</div>' +
-         '<div class="dok-pratinjau" style="max-height:280px">' + r.isiNaskah + '</div>';
+    kiri += '<div class="label-kecil mt20 mb8">Naskah Surat</div>' +
+            '<div class="dok-pratinjau" style="max-height:260px">' + r.isiNaskah + '</div>';
+  }
+
+  /* ── Kolom kanan: pratinjau dokumen berdampingan ── */
+  var dok = berkasUtama_(r);
+  var idb = idDrive(dok);
+  var kanan = '<div class="baris antara g8 mb8 bungkus">' +
+    '<div class="label-kecil">Pratinjau Dokumen</div>' +
+    (dok ? '<button class="btn btn-hantu btn-sm" onclick="pratinjauBerkas(\'' + esc(dok) + '\',\'' +
+      esc(String(judulDok).replace(/'/g, '')) + '\')"><i class="bi bi-arrows-fullscreen"></i> ' +
+      'Perbesar</button>' : '') + '</div>';
+
+  kanan += dok
+    ? '<div class="pratinjau-bingkai" style="height:52vh"><iframe src="' +
+      esc(idb ? urlPratinjauDrive(idb) : dok) + '" title="Pratinjau dokumen"></iframe></div>' +
+      '<div class="baris g8 mt12 bungkus">' +
+      '<a class="btn btn-navy btn-sm sisa" href="' + esc(idb ? urlUnduhDrive(idb) : dok) +
+        '" download target="_blank" rel="noopener"><i class="bi bi-download"></i> Unduh</a>' +
+      (Sesi.boleh('tulis') ? '<button class="btn btn-garis btn-sm sisa" onclick="bukaUnggahScan(\'' +
+        kunci + '\',\'' + r.id + '\')"><i class="bi bi-upload"></i> Ganti Scan Asli</button>' : '') +
+      '</div>'
+    : '<div class="kosong" style="padding:36px 18px"><i class="bi bi-file-earmark-x"></i>' +
+      '<div class="k-judul">Belum ada dokumen</div>' +
+      '<div class="k-desk">Dokumen PDF akan muncul setelah data diterbitkan, atau unggah ' +
+      'hasil pindai surat asli bertanda tangan basah.</div>' +
+      (Sesi.boleh('tulis') ? '<div class="mt16"><button class="btn btn-utama" onclick="bukaUnggahScan(\'' +
+        kunci + '\',\'' + r.id + '\')"><i class="bi bi-upload"></i> Unggah Scan Asli</button></div>' : '') +
+      '</div>';
+
+  /* ── Lampiran scan asli terpisah (bila dokumen utama adalah PDF terbit) ── */
+  if (r.pdfUrl && r.fileScanUrl) {
+    kanan += '<div class="garis"></div>' +
+      '<div class="baris antara g8 bungkus">' +
+      '<div><div class="label-kecil mb4">Arsip Scan Asli (Tanda Tangan Basah)</div>' +
+      '<div class="tx-sm tx-3">Tersimpan di Google Drive</div></div>' +
+      '<button class="btn btn-garis btn-sm" onclick="pratinjauBerkas(\'' + esc(r.fileScanUrl) +
+      '\',\'Scan Asli — ' + esc(String(judulDok).replace(/'/g, '')) + '\')">' +
+      '<i class="bi bi-eye"></i> Lihat Scan</button></div>';
   }
 
   bukaModal({
     lebar: true,
     judul: 'Detail ' + infoModul(kunci).nama,
-    sub: r.nomorSurat || r.nomorAgenda || r.nomorMOU || r.nomorSK || r.kodeArsip || '',
-    isi: h,
-    kaki: (r.pdfUrl ? '<a class="btn btn-navy" href="' + esc(r.pdfUrl) + '" target="_blank" rel="noopener">' +
-            '<i class="bi bi-file-earmark-pdf"></i> Buka PDF</a>' : '') +
-          '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>'
+    sub: nomor || undefined,
+    tanpaFokus: true,
+    isi: '<div class="detail-grid"><div>' + kiri + '</div><div>' + kanan + '</div></div>',
+    kaki:
+      (Sesi.boleh('tulis')
+        ? '<button class="btn btn-navy" onclick="bukaEditModul(\'' + kunci + '\',\'' + r.id + '\')">' +
+          '<i class="bi bi-pencil-square"></i> Edit Data</button>' +
+          '<button class="btn btn-garis" onclick="bukaUnggahScan(\'' + kunci + '\',\'' + r.id + '\')">' +
+          '<i class="bi bi-upload"></i> Unggah Scan Asli</button>'
+        : '') +
+      (Sesi.boleh('hapus')
+        ? '<button class="btn btn-bahaya" onclick="tutupModal();hapusData(\'' + kunci + '\',\'' +
+          r.id + '\')"><i class="bi bi-trash"></i> Hapus</button>'
+        : '') +
+      '<button class="btn btn-hantu" onclick="tutupModal()">Tutup</button>'
+  });
+}
+
+/* ── Unggah hasil pindai surat asli bertanda tangan basah ────────── */
+function bukaUnggahScan(kunci, id) {
+  var cfg = Adm.boot.config || {};
+  window.__scanSementara = null;
+
+  bukaModal({
+    sempit: true,
+    judul: 'Unggah Scan Surat Asli',
+    sub: 'Arsip lembar bertanda tangan basah & berstempel untuk dokumen ini.',
+    isi:
+      '<div class="baris g10 mb16" style="align-items:flex-start;background:var(--info-bg);' +
+      'color:var(--info-fg);padding:12px 14px;border-radius:var(--r-lg)">' +
+      '<i class="bi bi-info-circle-fill" style="margin-top:2px"></i>' +
+      '<div class="sisa tx-sm" style="line-height:1.6">Berkas disimpan di Google Drive pada folder ' +
+      'modul terkait dan tertaut otomatis ke data ini. Dokumen PDF hasil generate tidak terhapus.</div></div>' +
+
+      '<label class="jatuhkan" style="display:block">' +
+      '<i class="bi bi-cloud-arrow-up j-ikon"></i>' +
+      '<div class="j-judul">Pilih atau jatuhkan berkas hasil pindai</div>' +
+      '<div class="j-desk">Format ' + esc(String(cfg.UPLOAD_FORMAT || 'pdf,jpg,png').toUpperCase()) +
+      ' · maksimal ' + esc(String(cfg.UPLOAD_MAX_MB || 2)) + ' MB</div>' +
+      '<div class="mt8"><span class="chip-nomor" id="scanNama">belum ada berkas dipilih</span></div>' +
+      '<input type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none" ' +
+      'onchange="pilihScanAsli(this)"></label>',
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
+          '<button class="btn btn-utama" id="btnScan" onclick="simpanScanAsli(\'' + kunci + '\',\'' +
+          id + '\')"><i class="bi bi-cloud-upload"></i> Unggah &amp; Arsipkan</button>'
+  });
+}
+
+function pilihScanAsli(input) {
+  var f = input.files && input.files[0];
+  if (!f) return;
+  var cfg = Adm.boot.config || {};
+  var galat = validasiBerkas(f, Number(cfg.UPLOAD_MAX_MB || 2),
+    String(cfg.UPLOAD_FORMAT || 'pdf,jpg,jpeg,png').split(',').map(function (x) { return x.trim(); }));
+  if (galat) { toast(galat, 'galat'); input.value = ''; return; }
+
+  bacaBerkasBase64(f).then(function (b64) {
+    window.__scanSementara = { nama: f.name, mime: f.type, base64: b64 };
+    el('scanNama').textContent = f.name + ' · ' + formatUkuran(f.size);
+    toast('Berkas siap diunggah.', 'sukses');
+  }).catch(function (e) { toast(e.message, 'galat'); });
+}
+
+function simpanScanAsli(kunci, id) {
+  if (!window.__scanSementara) { toast('Pilih berkas hasil pindai terlebih dahulu.', 'peringatan'); return; }
+  var btn = el('btnScan');
+  tombolSibuk(btn, true, 'Mengunggah…');
+
+  kirim('lampirkanScan', {
+    modul: kunci, id: id,
+    nama: window.__scanSementara.nama,
+    mime: window.__scanSementara.mime,
+    base64: window.__scanSementara.base64
+  }, APP.batasWaktuUnggah).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+    window.__scanSementara = null;
+    tutupModal();
+    toast('Scan asli berhasil diarsipkan ke Google Drive.', 'sukses');
+    segarkanModul(kunci);
   });
 }
 

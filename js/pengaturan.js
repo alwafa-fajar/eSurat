@@ -15,6 +15,7 @@ var TAB_PENGATURAN = [
   { k: 'prodi',      n: 'Program Studi',         i: 'bi-mortarboard' },
   { k: 'skema',      n: 'Skema Keringanan',      i: 'bi-cash-coin' },
   { k: 'klasifikasi',n: 'Klasifikasi Karya',     i: 'bi-journal-bookmark' },
+  { k: 'berkasSyarat', n: 'Berkas Syarat Pengajuan', i: 'bi-list-check' },
   { k: 'templateDoc',n: 'Template Google Docs',  i: 'bi-file-earmark-richtext' },
   { k: 'templateDokumen', n: 'Template Internal (HTML)', i: 'bi-code-slash' },
   { k: 'berkasTemplate',  n: 'Berkas Template Unduhan',  i: 'bi-download' },
@@ -191,6 +192,37 @@ var MASTER_SKEMA = {
       { id: 'keterangan', l: 'Keterangan' }
     ]
   },
+  berkasSyarat: {
+    judul: 'Berkas Syarat Pengajuan',
+    desk: 'Menentukan berkas apa saja yang harus diunggah pemohon pada portal publik, ' +
+          'beserta status <b>Wajib</b> atau <b>Opsional</b>-nya. Perubahan langsung berlaku di portal.',
+    kolom: [
+      { k: 'jenisPengajuan', l: 'Jenis', tipe: 'lencana' },
+      { k: 'label', l: 'Nama Berkas', tipe: 'utama' },
+      { k: 'kunci', l: 'Kunci', tipe: 'mono' },
+      { k: 'wajib', l: 'Sifat', tipe: 'wajibOpsional' },
+      { k: 'urutan', l: 'Urutan' },
+      { k: 'aktif', l: 'Status', tipe: 'lencana' }
+    ],
+    bidang: [
+      { id: 'jenisPengajuan', l: 'Berlaku untuk Pengajuan', t: 'pilih', wajib: true, kolom: 2,
+        opsi: [{ v: 'mahasiswa', t: 'Mahasiswa — Keringanan UKT & Asrama' },
+               { v: 'dosen', t: 'Dosen — Insentif Karya Ilmiah' }] },
+      { id: 'urutan', l: 'Urutan Tampil', t: 'number', kolom: 2 },
+      { id: 'label', l: 'Nama Berkas yang Diminta', wajib: true,
+        ph: 'Formulir Permohonan Resmi Bermeterai' },
+      { id: 'deskripsi', l: 'Keterangan untuk Pemohon', t: 'area', baris: 2,
+        ph: 'Sudah ditandatangani pemohon & bermeterai 10.000' },
+      { id: 'kunci', l: 'Kunci Teknis', wajib: true, kolom: 2, ph: 'formulir',
+        bantu: 'Huruf kecil tanpa spasi. Dipakai sistem sebagai penanda berkas — jangan diubah ' +
+               'setelah ada pengajuan masuk.' },
+      { id: 'ikon', l: 'Kelas Ikon Bootstrap', kolom: 2, ph: 'bi-file-earmark-text' },
+      { id: 'wajib', l: 'Sifat Berkas', t: 'pilih', kolom: 2,
+        opsi: [{ v: 'true', t: 'Wajib — pengajuan ditolak bila kosong' },
+               { v: 'false', t: 'Opsional — boleh dikosongkan' }] },
+      { id: 'aktif', l: 'Status', t: 'pilih', kolom: 2, opsi: ['true', 'false'] }
+    ]
+  },
   berkasTemplate: {
     judul: 'Berkas Template Unduhan',
     desk: 'Blangko resmi yang dapat diunduh pemohon dari portal publik.',
@@ -324,10 +356,37 @@ function tabIdentitas(w) {
     bidangTeks({ id: 'cfKota', label: 'Kota Penerbitan', nilai: c.INSTITUSI_KOTA }) +
     bidangTeks({ id: 'cfTelepon', label: 'Telepon', nilai: c.INSTITUSI_TELEPON }) +
     bidangTeks({ id: 'cfEmail', label: 'Surel Resmi', tipe: 'email', nilai: c.INSTITUSI_EMAIL }) + '</div>' +
-    '<div class="grid-2">' +
     bidangTeks({ id: 'cfWebsite', label: 'Laman Resmi', tipe: 'url', nilai: c.INSTITUSI_WEBSITE }) +
-    bidangTeks({ id: 'cfLogo', label: 'URL Logo Kustom', nilai: c.INSTITUSI_LOGO,
-      bantu: 'Kosongkan untuk memakai lambang bawaan aplikasi.' }) + '</div>' +
+
+    /* ── Logo aplikasi: unggah gambar, bukan tempel URL ── */
+    '<div class="bidang"><label>Logo Aplikasi</label>' +
+    '<div class="baris g12 bungkus" style="align-items:flex-start;border:1px solid var(--border);' +
+    'border-radius:var(--r-lg);padding:14px">' +
+      '<div class="thumb-logo" id="logoThumb">' +
+        (c.INSTITUSI_LOGO
+          ? '<img src="' + esc(c.INSTITUSI_LOGO) + '" alt="Logo institusi">'
+          : '<i class="bi bi-image"></i>') +
+      '</div>' +
+      '<div class="sisa" style="min-width:210px">' +
+        '<div class="tebal tx-md mb4">Thumbnail Logo Institusi</div>' +
+        '<div class="tx-sm tx-3 mb12" style="line-height:1.6">Tampil pada navigasi portal publik, ' +
+        'panel admin, dan judul halaman. Format PNG/JPG/WEBP, maksimal 2 MB. ' +
+        'Disarankan gambar persegi minimal 256&times;256 piksel.</div>' +
+        '<div class="baris g8 bungkus">' +
+          '<label class="btn btn-navy btn-sm" style="cursor:pointer">' +
+            '<i class="bi bi-upload"></i> Pilih Gambar Logo' +
+            '<input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" ' +
+            'onchange="pilihLogo(this)"></label>' +
+          '<button class="btn btn-utama btn-sm" id="btnLogo" onclick="simpanLogo()" disabled>' +
+            '<i class="bi bi-check2"></i> Unggah &amp; Terapkan</button>' +
+          (c.INSTITUSI_LOGO ? '<button class="btn btn-garis btn-sm" onclick="hapusLogo()">' +
+            '<i class="bi bi-trash"></i> Pakai Lambang Bawaan</button>' : '') +
+        '</div>' +
+        '<div class="tx-sm tx-3 mt8" id="logoNama">' +
+          (c.INSTITUSI_LOGO ? 'Logo kustom sedang aktif.' : 'Belum ada logo kustom — memakai lambang bawaan.') +
+        '</div>' +
+      '</div>' +
+    '</div></div>' +
     bidangTeks({ id: 'cfAkreditasi', label: 'Keterangan Akreditasi', nilai: c.INSTITUSI_AKREDITASI }) +
     '<div class="grid-2">' +
     bidangTeks({ id: 'cfTahun', label: 'Tahun Akademik Berjalan', nilai: c.TAHUN_AKADEMIK, placeholder: '2026/2027' }) +
@@ -356,7 +415,6 @@ function simpanIdentitas() {
     INSTITUSI_TELEPON: ambilNilai('cfTelepon'),
     INSTITUSI_EMAIL: ambilNilai('cfEmail'),
     INSTITUSI_WEBSITE: ambilNilai('cfWebsite'),
-    INSTITUSI_LOGO: ambilNilai('cfLogo'),
     INSTITUSI_AKREDITASI: ambilNilai('cfAkreditasi'),
     TAHUN_AKADEMIK: ambilNilai('cfTahun'),
     SEMESTER: ambilNilai('cfSemester')
@@ -712,6 +770,7 @@ function bidangMaster(b, rec) {
   var v = rec[b.id];
   if (v === undefined && b.id === 'aktif') v = 'true';
   if (v === undefined && b.id === 'tteAktif') v = 'false';
+  if (v === undefined && b.id === 'wajib') v = 'true';
   if (b.t === 'area') return bidangArea({ id: 'ms_' + b.id, label: b.l, wajib: b.wajib, baris: b.baris,
     nilai: v, placeholder: b.ph, bantu: b.bantu });
   if (b.t === 'pilih') return bidangPilih({ id: 'ms_' + b.id, label: b.l, wajib: b.wajib, opsi: b.opsi,
@@ -806,6 +865,66 @@ function simpanSpesimen() {
       window.__spesimen = null;
       toast('Spesimen tanda tangan tersimpan dan TTE diaktifkan untuk pejabat tersebut.', 'sukses');
       segarkanMaster('pejabat');
+    });
+  });
+}
+
+/* ── Logo aplikasi ──────────────────────────────────────────────── */
+function pilihLogo(input) {
+  var f = input.files && input.files[0];
+  if (!f) return;
+
+  if (['image/png', 'image/jpeg', 'image/webp'].indexOf(f.type) < 0) {
+    toast('Logo harus berformat PNG, JPG, atau WEBP.', 'galat');
+    input.value = ''; return;
+  }
+  if (f.size > 2 * 1024 * 1024) {
+    toast('Ukuran logo ' + formatUkuran(f.size) + ' melebihi batas 2 MB.', 'galat');
+    input.value = ''; return;
+  }
+
+  bacaBerkasBase64(f).then(function (b64) {
+    window.__logoSementara = { nama: f.name, mime: f.type, base64: b64 };
+    // Pratinjau langsung sebelum diunggah — pengguna melihat hasilnya seketika
+    el('logoThumb').innerHTML = '<img src="data:' + f.type + ';base64,' + b64 + '" alt="Pratinjau logo">';
+    el('logoNama').textContent = f.name + ' · ' + formatUkuran(f.size) + ' — belum diunggah.';
+    el('btnLogo').disabled = false;
+    toast('Pratinjau logo ditampilkan. Klik "Unggah & Terapkan" untuk menyimpan.', 'info');
+  }).catch(function (e) { toast(e.message, 'galat'); });
+}
+
+function simpanLogo() {
+  if (!window.__logoSementara) { toast('Pilih berkas gambar terlebih dahulu.', 'peringatan'); return; }
+  var btn = el('btnLogo');
+  tombolSibuk(btn, true, 'Mengunggah…');
+
+  kirim('unggahLogo', window.__logoSementara, APP.batasWaktuUnggah).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+
+    window.__logoSementara = null;
+    Adm.boot.config.INSTITUSI_LOGO = r.data.url;
+    Sesi.simpanBoot(Adm.boot);
+    renderKerangkaAdmin();
+    el('logoNama').textContent = 'Logo kustom aktif · ' + r.data.ukuranMb + ' MB';
+    toast(r.message, 'sukses');
+  });
+}
+
+function hapusLogo() {
+  konfirmasi({
+    judul: 'Kembali ke Lambang Bawaan',
+    pesan: 'Logo kustom akan dilepas dari aplikasi. Berkas gambarnya tetap tersimpan di Google Drive.',
+    ya: 'Ya, Pakai Lambang Bawaan'
+  }).then(function (ya) {
+    if (!ya) return;
+    kirim('simpanConfig', { config: { INSTITUSI_LOGO: '' } }).then(function (r) {
+      if (!r.success) { toast(r.message, 'galat'); return; }
+      Adm.boot.config = r.data;
+      Sesi.simpanBoot(Adm.boot);
+      renderKerangkaAdmin();
+      gambarTabPengaturan();
+      toast('Aplikasi kembali memakai lambang bawaan.', 'sukses');
     });
   });
 }

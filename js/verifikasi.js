@@ -88,8 +88,8 @@ function renderAntreanPengajuan(w, jenis) {
       aksi: function (r) {
         var a = '<button class="btn btn-navy btn-sm" onclick="bukaVerifikasi(\'' + jenis + '\',\'' + r.id +
                 '\')">Review <i class="bi bi-arrow-right"></i></button>';
-        if (r.pdfUrl) a += '<a class="btn btn-hantu btn-ikon" title="Surat Keterangan" target="_blank" ' +
-                           'rel="noopener" href="' + esc(r.pdfUrl) + '"><i class="bi bi-file-earmark-pdf"></i></a>';
+        if (r.pdfUrl) a += tombolPratinjau(r.pdfUrl, 'Surat Keterangan ' + r.noRef,
+                             'bi-file-earmark-pdf', 'Pratinjau Surat Keterangan');
         return a;
       }
     }) + '</div>';
@@ -190,13 +190,13 @@ function bukaVerifikasi(jenis, id) {
   kiri += berkas.length
     ? '<div class="pilihan-grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">' +
       berkas.map(function (b) {
-        return '<a class="pilihan" href="' + esc(b.url) + '" target="_blank" rel="noopener" ' +
-          'style="text-decoration:none;color:inherit">' +
+        return '<div class="pilihan" onclick="pratinjauBerkas(\'' + esc(b.url) + '\',\'' +
+          esc(String(b.label || 'Lampiran').replace(/'/g, '')) + '\')" style="cursor:pointer">' +
           '<div class="p-atas"><div class="p-ikon"><i class="bi bi-file-earmark-pdf"></i></div>' +
           '<i class="bi bi-box-arrow-up-right tx-3"></i></div>' +
           '<div class="p-nama" style="font-size:12.5px">' + esc(potong(b.label, 40)) + '</div>' +
           '<div class="p-desk mono" style="font-size:10.5px">' + esc(potong(b.nama, 28)) + ' · ' +
-          formatUkuran(b.ukuran) + '</div></a>';
+          formatUkuran(b.ukuran) + '</div></div>';
       }).join('') + '</div>'
     : '<div class="tx-sm tx-3">Tidak ada lampiran terunggah.</div>';
   kiri += '</div>';
@@ -270,9 +270,9 @@ function bukaVerifikasi(jenis, id) {
       '<div class="tx-sm tx-2">' + (rec.status === 'TERBIT'
         ? 'Surat Keterangan telah diterbitkan dan dikirim ke pemohon.'
         : 'Pengajuan ditolak pada salah satu jenjang verifikasi.') + '</div>' +
-      (rec.pdfUrl ? '<a class="btn btn-utama btn-blok mt16" href="' + esc(rec.pdfUrl) +
-        '" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> ' +
-        'Buka Surat Keterangan</a>' : '') + '</div></div>';
+      (rec.pdfUrl ? '<button class="btn btn-utama btn-blok mt16" onclick="pratinjauBerkas(\'' +
+        esc(rec.pdfUrl) + '\',\'Surat Keterangan\')"><i class="bi bi-file-earmark-pdf"></i> ' +
+        'Lihat Surat Keterangan</button>' : '') + '</div></div>';
 
   } else if (siapTerbit) {
     kanan += '<div class="kartu">' +

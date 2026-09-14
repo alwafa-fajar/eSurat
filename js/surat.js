@@ -57,17 +57,22 @@ function renderSuratKeluar(w) {
       aksi: function (r) {
         var a = '<button class="btn btn-hantu btn-ikon" title="Detail" onclick="lihatDetail(\'suratKeluar\',\'' +
                 r.id + '\')"><i class="bi bi-eye"></i></button>';
-        if (r.pdfUrl) {
-          a += '<a class="btn btn-hantu btn-ikon" title="Buka PDF" target="_blank" rel="noopener" href="' +
-               esc(r.pdfUrl) + '"><i class="bi bi-file-earmark-pdf"></i></a>';
-        }
+        if (r.pdfUrl) a += tombolPratinjau(r.pdfUrl, r.nomorSurat, 'bi-file-earmark-pdf', 'Pratinjau PDF');
         if (Sesi.boleh('tulis') && r.status === 'DRAF') {
           a += '<button class="btn btn-hantu btn-ikon" title="Lanjutkan draf" onclick="bukaGeneratorSurat(\'' +
                r.id + '\')"><i class="bi bi-pencil"></i></button>';
         }
+        if (Sesi.boleh('tulis')) {
+          a += '<button class="btn btn-hantu btn-ikon" title="Unggah scan asli" onclick="bukaUnggahScan(\'suratKeluar\',\'' +
+               r.id + '\')"><i class="bi bi-upload"></i></button>';
+        }
         if (Sesi.boleh('tulis') && r.status === 'TERBIT') {
           a += '<button class="btn btn-hantu btn-ikon" title="Tarik kembali" onclick="tarikDokumen(\'suratKeluar\',\'' +
                r.id + '\')"><i class="bi bi-arrow-counterclockwise"></i></button>';
+        }
+        if (Sesi.boleh('hapus')) {
+          a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'suratKeluar\',\'' +
+               r.id + '\')"><i class="bi bi-trash"></i></button>';
         }
         return a;
       }
@@ -236,22 +241,8 @@ function pratinjauSurat() {
   }, APP.batasWaktuUnggah).then(function (r) {
     tombolSibuk(btn, false);
     if (!r.success) { toast(r.message, 'galat'); return; }
-    tampilkanPdf(r.data.pdfBase64, r.data.namaFile, r.data.nomorPratinjau);
-  });
-}
-
-function tampilkanPdf(base64, namaFile, nomor) {
-  var src = 'data:application/pdf;base64,' + base64;
-  bukaModal({
-    lebar: true,
-    judul: 'Pratinjau Lembar Resmi',
-    sub: 'Nomor ' + (nomor || '') + ' — belum terpakai, counter tidak dinaikkan.',
-    isi: '<iframe src="' + src + '" style="width:100%;height:66vh;border:1px solid var(--border);' +
-         'border-radius:var(--r-lg)" title="Pratinjau PDF"></iframe>',
-    kaki: '<a class="btn btn-navy" href="' + src + '" download="' + esc(namaFile) + '">' +
-          '<i class="bi bi-download"></i> Unduh Pratinjau</a>' +
-          '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>',
-    tanpaFokus: true
+    pratinjauPdfBase64(r.data.pdfBase64, r.data.namaFile, 'Pratinjau Lembar Resmi',
+      'Nomor ' + (r.data.nomorPratinjau || '') + ' — belum terpakai, counter tidak dinaikkan.');
   });
 }
 
@@ -285,8 +276,9 @@ function terbitkanSurat(id) {
               '<div class="mb12">' + chipNomor(r.data.nomorSurat) + '</div>' +
               '<div class="tx-md tx-2">' + esc(r.data.perihal) + '</div></div>',
             kaki: '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>' +
-                  '<a class="btn btn-utama" href="' + esc(r.data.pdfUrl) + '" target="_blank" rel="noopener">' +
-                  '<i class="bi bi-file-earmark-pdf"></i> Buka PDF Resmi</a>',
+                  '<button class="btn btn-utama" onclick="pratinjauBerkas(\'' + esc(r.data.pdfUrl) +
+                  '\',\'' + esc(String(r.data.nomorSurat).replace(/'/g, '')) + '\')">' +
+                  '<i class="bi bi-file-earmark-pdf"></i> Lihat PDF Resmi</button>',
             tanpaFokus: true
           });
         }
@@ -469,14 +461,19 @@ function renderSK(w) {
       aksi: function (r) {
         var a = '<button class="btn btn-hantu btn-ikon" title="Detail" onclick="lihatDetail(\'sk\',\'' +
                 r.id + '\')"><i class="bi bi-eye"></i></button>';
-        if (r.pdfUrl) a += '<a class="btn btn-hantu btn-ikon" title="Buka PDF" target="_blank" rel="noopener" href="' +
-                           esc(r.pdfUrl) + '"><i class="bi bi-file-earmark-pdf"></i></a>';
+        if (r.pdfUrl) a += tombolPratinjau(r.pdfUrl, r.nomorSK, 'bi-file-earmark-pdf', 'Pratinjau PDF');
         if (Sesi.boleh('tulis') && r.status === 'DRAF')
           a += '<button class="btn btn-hantu btn-ikon" title="Lanjutkan draf" onclick="bukaGeneratorSK(\'' +
                r.id + '\')"><i class="bi bi-pencil"></i></button>';
+        if (Sesi.boleh('tulis'))
+          a += '<button class="btn btn-hantu btn-ikon" title="Unggah scan asli" onclick="bukaUnggahScan(\'sk\',\'' +
+               r.id + '\')"><i class="bi bi-upload"></i></button>';
         if (Sesi.boleh('tulis') && r.status === 'TERBIT')
           a += '<button class="btn btn-hantu btn-ikon" title="Tarik kembali" onclick="tarikDokumen(\'sk\',\'' +
                r.id + '\')"><i class="bi bi-arrow-counterclockwise"></i></button>';
+        if (Sesi.boleh('hapus'))
+          a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'sk\',\'' +
+               r.id + '\')"><i class="bi bi-trash"></i></button>';
         return a;
       }
     }) + '</div>';
@@ -647,13 +644,18 @@ function renderBeritaAcara(w) {
       aksi: function (r) {
         var a = '<button class="btn btn-hantu btn-ikon" title="Detail" onclick="lihatDetail(\'beritaAcara\',\'' +
                 r.id + '\')"><i class="bi bi-eye"></i></button>';
-        if (r.audioUrl) a += '<a class="btn btn-hantu btn-ikon" title="Rekaman audio" target="_blank" ' +
-                             'rel="noopener" href="' + esc(r.audioUrl) + '"><i class="bi bi-soundwave"></i></a>';
-        if (r.pdfUrl) a += '<a class="btn btn-hantu btn-ikon" title="Buka PDF" target="_blank" rel="noopener" href="' +
-                           esc(r.pdfUrl) + '"><i class="bi bi-file-earmark-pdf"></i></a>';
+        if (r.audioUrl) a += tombolPratinjau(r.audioUrl, 'Rekaman — ' + r.agenda,
+                             'bi-soundwave', 'Putar rekaman rapat');
+        if (r.pdfUrl) a += tombolPratinjau(r.pdfUrl, r.nomorDokumen, 'bi-file-earmark-pdf', 'Pratinjau PDF');
         if (Sesi.boleh('tulis') && r.status !== 'TERBIT')
           a += '<button class="btn btn-hantu btn-ikon" title="Ubah" onclick="bukaFormBA(\'' +
                esc(r.kategori) + '\',\'' + r.id + '\')"><i class="bi bi-pencil"></i></button>';
+        if (Sesi.boleh('tulis'))
+          a += '<button class="btn btn-hantu btn-ikon" title="Unggah scan asli" onclick="bukaUnggahScan(\'beritaAcara\',\'' +
+               r.id + '\')"><i class="bi bi-upload"></i></button>';
+        if (Sesi.boleh('hapus'))
+          a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'beritaAcara\',\'' +
+               r.id + '\')"><i class="bi bi-trash"></i></button>';
         return a;
       }
     }) + '</div>';

@@ -12,26 +12,34 @@ var Publik = {
   tambahan: { mhs: [], dsn: [] }
 };
 
-/* ── Berkas wajib per jenis pengajuan ───────────────────────────── */
-var BERKAS_MHS = [
-  { kunci: 'formulir', label: 'Formulir Permohonan Resmi Bermeterai', wajib: true,
-    desk: 'Sudah ditandatangani pemohon & bermeterai 10.000', ikon: 'bi-file-earmark-text' },
-  { kunci: 'pernyataan', label: 'Surat Pernyataan Diri Tidak Mampu', wajib: true,
-    desk: 'Format bebas atau format template baku kampus', ikon: 'bi-file-earmark-check' },
-  { kunci: 'penghasilan', label: 'Slip Gaji Orang Tua / Surat Keterangan Kades', wajib: true,
-    desk: 'Stempel basah Kelurahan/Kepala Desa atau slip resmi instansi 2 bulan terakhir', ikon: 'bi-file-earmark-medical' }
-];
+/* ── Berkas persyaratan — diambil dari Master Data (dapat diatur admin) ──
+   Admin/Super Admin menentukan daftar, label, dan status wajib/opsional
+   dari Pengaturan → Berkas Syarat Pengajuan. Daftar di bawah hanya
+   dipakai sebagai cadangan bila master data belum terisi.
+   ─────────────────────────────────────────────────────────────────────── */
+var BERKAS_CADANGAN = {
+  mahasiswa: [
+    { kunci: 'formulir', label: 'Formulir Permohonan Resmi Bermeterai', wajib: true,
+      desk: 'Sudah ditandatangani pemohon & bermeterai 10.000', ikon: 'bi-file-earmark-text' },
+    { kunci: 'pernyataan', label: 'Surat Pernyataan Diri Tidak Mampu', wajib: true,
+      desk: 'Format bebas atau format template baku kampus', ikon: 'bi-file-earmark-check' }
+  ],
+  dosen: [
+    { kunci: 'permohonan', label: 'Surat Permohonan Insentif Resmi', wajib: true,
+      desk: 'Format template LPPM yang telah ditandatangani pengusul', ikon: 'bi-file-earmark-text' },
+    { kunci: 'naskah', label: 'Naskah Artikel Lengkap (Full Paper / Reprint PDF)', wajib: true,
+      desk: 'Naskah versi terbit lengkap dengan identitas jurnal', ikon: 'bi-file-earmark-pdf' }
+  ]
+};
 
-var BERKAS_DSN = [
-  { kunci: 'permohonan', label: 'Surat Permohonan Insentif Resmi', wajib: true,
-    desk: 'Format template LPPM yang telah ditandatangani pengusul', ikon: 'bi-file-earmark-text' },
-  { kunci: 'naskah', label: 'Naskah Artikel Lengkap (Full Paper / Reprint PDF)', wajib: true,
-    desk: 'Naskah versi terbit lengkap dengan identitas jurnal', ikon: 'bi-file-earmark-pdf' },
-  { kunci: 'loa', label: 'Bukti Korespondensi & Accepted Letter (LoA / Invoicing)', wajib: false,
-    desk: 'Bukti email review, revisi naskah, dan surat penerimaan', ikon: 'bi-envelope-check' },
-  { kunci: 'indeks', label: 'Halaman Bukti Pengindeksan (Scopus / Scimago SJR)', wajib: false,
-    desk: 'Tangkapan layar halaman Scopus Preview atau kuartil SJR tahun penerbitan', ikon: 'bi-patch-check' }
-];
+var BERKAS_MHS = [];   // diisi saat portal dimuat
+var BERKAS_DSN = [];
+
+function muatBerkasSyarat(data) {
+  var bs = data.berkasSyarat || {};
+  BERKAS_MHS = (bs.mahasiswa && bs.mahasiswa.length) ? bs.mahasiswa : BERKAS_CADANGAN.mahasiswa;
+  BERKAS_DSN = (bs.dosen && bs.dosen.length) ? bs.dosen : BERKAS_CADANGAN.dosen;
+}
 
 /* ── Render portal setelah bootstrap ────────────────────────────── */
 function renderPortal(data) {
@@ -45,15 +53,17 @@ function renderPortal(data) {
   el('pubFooterAlamat').textContent = [i.alamat, i.telepon, i.email].filter(Boolean).join(' · ');
   document.title = 'e-SURAT — ' + (i.singkatan || 'Layanan Persuratan Digital');
 
-  if (i.logo) {
-    el('pubLogo').innerHTML = '<img src="' + esc(i.logo) + '" alt="Logo institusi">';
-  }
+  el('pubLogo').innerHTML = i.logo
+    ? '<img src="' + esc(i.logo) + '" alt="Logo institusi">'
+    : '<i class="bi bi-envelope-paper-fill"></i>';
+  pasangFavicon(i.logo);
 
   renderHero(data);
   renderRunningText(data);
   isiDropdownProdi(data.prodi || []);
   renderSkema(data.skema || []);
   renderKlasifikasi(data.klasifikasi || []);
+  muatBerkasSyarat(data);
   renderBerkas('mhs', BERKAS_MHS, data.tampilan);
   renderBerkas('dsn', BERKAS_DSN, data.tampilan);
   renderSidebarPublik(data);
@@ -228,6 +238,12 @@ function pasangPilihan(grup) {
 function renderBerkas(pre, daftar, tampilan) {
   var w = el(pre + 'Berkas');
   if (!w) return;
+
+  if (!daftar.length) {
+    w.innerHTML = '<div class="tx-3 tx-sm">Belum ada berkas persyaratan yang dikonfigurasi admin.</div>';
+    return;
+  }
+
   w.innerHTML = daftar.map(function (b) {
     return '<label class="unggah" id="' + pre + 'U_' + b.kunci + '">' +
       '<div class="u-ikon"><i class="bi ' + b.ikon + '"></i></div>' +
@@ -394,12 +410,13 @@ function renderSidebarPublik(data) {
       '<div class="tumpuk g8">' +
       bt.map(function (b) {
         var aktif = !!b.fileUrl;
-        return '<a class="unggah" ' + (aktif ? 'href="' + esc(b.fileUrl) + '" target="_blank" rel="noopener"' : '') +
-          ' style="text-decoration:none;color:inherit' + (aktif ? '' : ';opacity:.55') + '">' +
+        return '<div class="unggah" ' + (aktif ? 'onclick="pratinjauBerkas(\'' + esc(b.fileUrl) +
+          '\',\'' + esc(String(b.nama).replace(/'/g, '')) + '\')" style="cursor:pointer"' :
+          'style="opacity:.55"') + '>' +
           '<div class="u-ikon"><i class="bi ' + esc(b.ikon || 'bi-file-earmark-word') + '"></i></div>' +
           '<div class="u-teks"><div class="u-nama" style="font-size:13px">' + esc(b.nama) + '</div>' +
           '<div class="u-desk">' + esc(b.deskripsi || '') + '</div></div>' +
-          '<i class="bi ' + (aktif ? 'bi-download' : 'bi-slash-circle') + ' tx-3"></i></a>';
+          '<i class="bi ' + (aktif ? 'bi-eye' : 'bi-slash-circle') + ' tx-3"></i></div>';
       }).join('') + '</div></div>';
   }
 
@@ -659,8 +676,9 @@ function lacakCepat() {
       '<div class="tx-sm tx-3 mt4">' + esc(d.nama) + ' · ' + esc(d.identitas) + '</div></div>' +
       '<div class="lacak-isi"><div class="linimasa">' +
       d.langkah.map(itemLinimasa).join('') + '</div>' +
-      (d.pdfUrl ? '<a class="btn btn-utama btn-blok mt16" href="' + esc(d.pdfUrl) +
-        '" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Unduh Surat Keterangan</a>' : '') +
+      (d.pdfUrl ? '<button class="btn btn-utama btn-blok mt16" onclick="pratinjauBerkas(\'' +
+        esc(d.pdfUrl) + '\',\'Surat Keterangan\')">' +
+        '<i class="bi bi-file-earmark-pdf"></i> Lihat Surat Keterangan</button>' : '') +
       '</div></div>';
   });
 }
@@ -685,8 +703,9 @@ function kartuLacak(d) {
   if (d.nomorSuratKeterangan) {
     h += '<div class="garis"></div><div class="baris antara g12 bungkus">' +
       '<div><div class="label-kecil mb4">Surat Keterangan Terbit</div>' + chipNomor(d.nomorSuratKeterangan) + '</div>' +
-      (d.pdfUrl ? '<a class="btn btn-utama" href="' + esc(d.pdfUrl) + '" target="_blank" rel="noopener">' +
-        '<i class="bi bi-file-earmark-pdf"></i> Unduh Dokumen Resmi</a>' : '') + '</div>';
+      (d.pdfUrl ? '<button class="btn btn-utama" onclick="pratinjauBerkas(\'' + esc(d.pdfUrl) +
+        '\',\'Surat Keterangan\',{sub:\'' + esc(String(d.nomorSuratKeterangan || '').replace(/'/g, '')) +
+        '\'})"><i class="bi bi-file-earmark-pdf"></i> Lihat Dokumen Resmi</button>' : '') + '</div>';
   }
 
   return h + '</div></div>';
