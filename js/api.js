@@ -1,12 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════
-   e-SURAT — js/api.js
+   e-SURAT — js/api.js  (v4.2)
    Lapisan komunikasi ke Google Apps Script REST API.
 
    Aturan penting:
    · POST WAJIB memakai Content-Type "text/plain;charset=utf-8".
      Header application/json memicu CORS preflight yang diblokir GAS.
-   · Token sesi dikirim di body/query, tidak pernah lewat cookie
-     (frontend berada di domain berbeda dari backend).
+   · Token sesi HANYA dikirim di body POST — tidak pernah di URL.
+   · Permintaan GET identik yang sedang berjalan digabung (tanpa dobel).
    ═══════════════════════════════════════════════════════════════════ */
 
 var Sesi = {
@@ -43,8 +43,7 @@ var Sesi = {
 
   ada: function () { return !!this.token; },
 
-  /* Snapshot panel admin — dipakai agar dashboard tampil seketika
-     saat halaman dibuka ulang, tanpa menunggu server. */
+  /* Snapshot panel admin — dashboard tampil seketika saat halaman dibuka ulang. */
   simpanBoot: function (boot) {
     try {
       sessionStorage.setItem(APP.kunciBoot, JSON.stringify({ waktu: Date.now(), boot: boot }));
@@ -78,6 +77,23 @@ var Sesi = {
   }
 };
 
+/* ── Cache portal publik di peramban (stale-while-revalidate) ────── */
+var CachePortal = {
+  kunci: 'esurat_portal_v42',
+  ambil: function () {
+    try {
+      var s = localStorage.getItem(this.kunci);
+      if (!s) return null;
+      var o = JSON.parse(s);
+      if (!o || !o.data || (Date.now() - o.waktu) > 7 * 86400000) return null;
+      return o;
+    } catch (e) { return null; }
+  },
+  simpan: function (data) {
+    try { localStorage.setItem(this.kunci, JSON.stringify({ waktu: Date.now(), data: data })); } catch (e) {}
+  }
+};
+
 /* ── Pemeriksaan konfigurasi ────────────────────────────────────── */
 function urlSiap() {
   return typeof GAS_URL === 'string' &&
@@ -102,10 +118,12 @@ function fetchDenganBatas(url, opsi, batasMs) {
     });
 }
 
+var _getBerjalan = {};
+
 /**
- * Ambil data (GET).
- * @param {string} aksi   nama aksi di router backend
- * @param {Object} param  parameter tambahan
+ * Ambil data.
+ * · Tanpa sesi (portal publik) → GET biasa, dapat di-cache peramban/CDN.
+ * · Dengan sesi (panel admin)  → otomatis POST agar token tidak pernah tampil di URL.
  */
 function ambil(aksi, param) {
   if (!urlSiap()) {
@@ -115,16 +133,21 @@ function ambil(aksi, param) {
     });
   }
 
+  if (Sesi.token) return kirim(aksi, param || {});
+
   var q = ['action=' + encodeURIComponent(aksi)];
-  if (Sesi.token) q.push('token=' + encodeURIComponent(Sesi.token));
   Object.keys(param || {}).forEach(function (k) {
     if (param[k] === undefined || param[k] === null) return;
     q.push(encodeURIComponent(k) + '=' + encodeURIComponent(param[k]));
   });
+  var url = GAS_URL + '?' + q.join('&');
 
-  return fetchDenganBatas(GAS_URL + '?' + q.join('&'), { method: 'GET', redirect: 'follow' })
+  if (_getBerjalan[url]) return _getBerjalan[url];
+  _getBerjalan[url] = fetchDenganBatas(url, { method: 'GET', redirect: 'follow' })
     .then(bacaRespon)
-    .catch(function (e) { return { success: false, message: e.message }; });
+    .catch(function (e) { return { success: false, message: e.message }; })
+    .then(function (r) { delete _getBerjalan[url]; return r; });
+  return _getBerjalan[url];
 }
 
 /**
@@ -144,7 +167,6 @@ function kirim(aksi, data, batas) {
   return fetchDenganBatas(GAS_URL, {
     method: 'POST',
     redirect: 'follow',
-    // WAJIB text/plain — mencegah CORS preflight yang diblokir Apps Script
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: aksi, token: Sesi.token || '', data: data || {} })
   }, batas)
@@ -170,7 +192,6 @@ function bacaRespon(res) {
       throw new Error('Respons server tidak dapat dibaca: ' + teks.substring(0, 160));
     }
 
-    // Sesi kedaluwarsa → paksa kembali ke layar masuk
     if (json && json.success === false &&
         (json.kode === 'SESSION_EXPIRED' || json.kode === 'NO_SESSION')) {
       if (Sesi.ada()) {
@@ -185,9 +206,11 @@ function bacaRespon(res) {
   });
 }
 
+/* ── Prefetch: mulai unduh data portal SEGERA saat skrip dimuat ──── */
+var JanjiBootPublik = urlSiap() ? ambil('bootstrapPublik', {}) : null;
+
 /* ── Pembantu unggahan ──────────────────────────────────────────── */
 
-/** Baca File objek menjadi base64 (tanpa awalan data URL). */
 function bacaBerkasBase64(file) {
   return new Promise(function (selesai, gagal) {
     var fr = new FileReader();
@@ -200,7 +223,6 @@ function bacaBerkasBase64(file) {
   });
 }
 
-/** Validasi berkas di sisi klien sebelum dikirim. */
 function validasiBerkas(file, maxMb, formatDiizinkan) {
   var maks = (maxMb || 2) * 1024 * 1024;
   if (file.size > maks) {
@@ -222,14 +244,12 @@ function formatUkuran(byte) {
   return (byte / 1048576).toFixed(1) + ' MB';
 }
 
-/** Bangkitkan QR code sebagai data URL (dipakai saat menerbitkan dokumen). */
 function buatQrDataUrl(isi) {
   try {
     if (typeof qrcode !== 'function') return null;
     var qr = qrcode(0, 'M');
     qr.addData(String(isi));
     qr.make();
-    var img = qr.createDataURL(6, 0);
-    return img;
+    return qr.createDataURL(6, 0);
   } catch (e) { return null; }
 }

@@ -1,35 +1,53 @@
 /* ═══════════════════════════════════════════════════════════════════
-   e-SURAT — js/admin.js
+   e-SURAT — js/admin.js  (v4.2)
    Router SPA panel admin, sidebar, dashboard, dan CRUD modul umum.
+
+   Kecepatan v4.2:
+   · Perpindahan menu 100% lokal (0 panggilan server)
+   · Simpan/hapus memperbarui tampilan SEKETIKA (optimistic UI),
+     sinkronisasi server berjalan di latar belakang
+   · Pencarian ditunda 180 ms (tidak render ulang tiap ketukan)
    ═══════════════════════════════════════════════════════════════════ */
 
 var Adm = {
-  boot: null,            // hasil bootstrapAdmin
+  boot: null,
   modulAktif: 'dashboard',
-  halaman: {},           // { idTabel: nomorHalaman }
-  filter: {},            // { modul: teksPencarian }
-  grafik: {}             // instance Chart.js
+  halaman: {},
+  filter: {},
+  grafik: {},
+  pemutarSegar: null
 };
 
-/* ── Muat panel admin ─────────────────────────────────────────────
-   Tiga jalur, dari paling cepat:
-   1. bootAwal  — data ikut pada respons login (0 panggilan tambahan)
-   2. snapshot  — hasil kunjungan sebelumnya di sessionStorage (tampil
-                  seketika, lalu disegarkan diam-diam di latar belakang)
-   3. server    — panggilan bootstrapAdmin penuh
-   ─────────────────────────────────────────────────────────────────── */
+/* ── Muat panel admin ─────────────────────────────────────────── */
 function pasangPanel(boot) {
   Adm.boot = boot;
   Sesi.simpanBoot(boot);
+  daftarBerkasPrivat();
   renderKerangkaAdmin();
   renderModul(Adm.modulAktif);
+
+  // Segarkan diam-diam tiap 3 menit selama tab terlihat — data selalu mutakhir
+  if (!Adm.pemutarSegar) {
+    Adm.pemutarSegar = setInterval(function () {
+      if (!document.hidden && Sesi.ada() && Aplikasi.lapisan === 'admin') segarkanPanelDiamDiam();
+    }, 180000);
+  }
+}
+
+/** Kumpulkan ID berkas pribadi pemohon agar pratinjau memakai jalur aman. */
+function daftarBerkasPrivat() {
+  ['pengajuanMhs', 'pengajuanDosen'].forEach(function (k) {
+    ((Adm.boot.data || {})[k] || []).forEach(function (r) {
+      var b = [];
+      try { b = typeof r.berkas === 'string' ? JSON.parse(r.berkas || '[]') : (r.berkas || []); } catch (e) {}
+      b.forEach(function (x) { if (x && x.privat && x.id) BerkasPrivat[x.id] = true; });
+    });
+  });
 }
 
 function muatPanelAdmin(bootAwal) {
-  // Jalur 1 — data panel sudah dibawa bersama respons login
   if (bootAwal) { pasangPanel(bootAwal); return Promise.resolve(true); }
 
-  // Jalur 2 — tampilkan snapshot lebih dulu agar dashboard langsung terlihat
   var snapshot = Sesi.ambilBoot(30 * 60 * 1000);
   if (snapshot) {
     pasangPanel(snapshot);
@@ -37,7 +55,6 @@ function muatPanelAdmin(bootAwal) {
     return Promise.resolve(true);
   }
 
-  // Jalur 3 — muat penuh dari server
   el('admKonten').innerHTML = keadaanMemuat('Memuat panel administrasi…');
   return kirim('bootstrapAdmin', {}).then(function (r) {
     if (!r.success) {
@@ -51,14 +68,24 @@ function muatPanelAdmin(bootAwal) {
 }
 
 /** Segarkan data panel di latar belakang tanpa mengganggu tampilan. */
+var _segarBerjalan = false;
 function segarkanPanelDiamDiam() {
+  if (_segarBerjalan) return;
+  _segarBerjalan = true;
+  var ind = el('tbSinkron');
+  if (ind) ind.hidden = false;
   kirim('bootstrapAdmin', {}).then(function (r) {
+    _segarBerjalan = false;
+    if (ind) ind.hidden = true;
     if (!r.success) return;
+    var lama = Adm.boot ? JSON.stringify([Adm.boot.data, Adm.boot.master, Adm.boot.dashboard, Adm.boot.config]) : '';
     Adm.boot = r.data;
     Sesi.simpanBoot(r.data);
+    daftarBerkasPrivat();
+    if (lama === JSON.stringify([r.data.data, r.data.master, r.data.dashboard, r.data.config])) return;
     renderKerangkaAdmin();
-    // Gambar ulang hanya bila pengguna belum berpindah / membuka dialog
-    if (!_tumpukanModal.length) renderModul(Adm.modulAktif);
+    var sedangMengetik = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if (!_tumpukanModal.length && !sedangMengetik && Adm.modulAktif !== 'laporan') renderModul(Adm.modulAktif);
   });
 }
 
@@ -81,7 +108,7 @@ function renderKerangkaAdmin() {
   renderSidebar();
 
   var antre = ((b.dashboard || {}).totalAntrean) || 0;
-  if (antre > 0) el('tbDot').hidden = false;
+  el('tbDot').hidden = !(antre > 0);
 }
 
 function renderSidebar() {
@@ -89,7 +116,8 @@ function renderSidebar() {
   var jumlahMasuk = (Adm.boot.data.suratMasuk || []).filter(function (r) {
     return selisihHari(r.tanggalTerima) <= 7;
   }).length;
-  var jumlahAntre = ((Adm.boot.dashboard || {}).totalAntrean) || 0;
+  var dsb = Adm.boot.dashboard || {};
+  var kpi = dsb.kpi || {};
 
   var h = '';
   MODUL_ADMIN.forEach(function (m) {
@@ -98,14 +126,11 @@ function renderSidebar() {
 
     var hitung = '';
     if (m.kunci === 'suratMasuk' && jumlahMasuk) hitung = '<span class="hitung">' + jumlahMasuk + '</span>';
-    if ((m.kunci === 'pengajuanMhs' || m.kunci === 'pengajuanDosen') && jumlahAntre) {
-      var n = m.kunci === 'pengajuanMhs' ? (Adm.boot.dashboard.kpi.ukt || 0)
-                                         : (Adm.boot.dashboard.kpi.dosen || 0);
-      if (n) hitung = '<span class="hitung">' + n + '</span>';
-    }
+    if (m.kunci === 'pengajuanMhs' && kpi.ukt) hitung = '<span class="hitung">' + kpi.ukt + '</span>';
+    if (m.kunci === 'pengajuanDosen' && kpi.dosen) hitung = '<span class="hitung">' + kpi.dosen + '</span>';
 
     h += '<button class="sb-item' + (m.kunci === Adm.modulAktif ? ' aktif' : '') +
-         '" onclick="renderModul(\'' + m.kunci + '\')">' +
+         '" data-modul="' + m.kunci + '" onclick="renderModul(\'' + m.kunci + '\')">' +
          '<i class="bi ' + m.ikon + '"></i><span class="sisa">' + esc(m.nama) + '</span>' + hitung + '</button>';
   });
 
@@ -120,12 +145,21 @@ function renderSidebar() {
   el('sbMenu').innerHTML = h;
 }
 
+/** Tandai menu aktif tanpa membangun ulang sidebar (instan). */
+function tandaiMenuAktif(kunci) {
+  $$('#sbMenu .sb-item[data-modul]').forEach(function (b) {
+    b.classList.toggle('aktif', b.dataset.modul === kunci);
+  });
+}
+
 /* ── Router modul ───────────────────────────────────────────────── */
 function renderModul(kunci) {
+  if (!Adm.boot) return;
+  var pindah = Adm.modulAktif !== kunci;
   Adm.modulAktif = kunci;
-  renderSidebar();
+  tandaiMenuAktif(kunci);
   tutupSidebar();
-  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+  if (pindah) window.scrollTo(0, 0);
 
   var w = el('admKonten');
   jalankanAman(function () {
@@ -170,7 +204,6 @@ function renderDashboard(w) {
 
   var h = '';
 
-  /* Banner sambutan */
   h += '<div class="sambutan">' +
     '<div class="s-ikon"><i class="bi bi-shield-check"></i></div>' +
     '<div class="s-teks">' +
@@ -184,7 +217,6 @@ function renderDashboard(w) {
     '<button class="btn btn-utama btn-blok" onclick="segarkanDashboard(this)">' +
     '<i class="bi bi-arrow-repeat"></i> Sinkron Sekarang</button></div></div>';
 
-  /* KPI */
   h += '<div class="kpi-grid">' +
     kartuKpi('Surat Masuk Bulan Ini', k.suratMasuk || 0, 'Dokumen', 'bi-inbox', 'biru',
       (k.deltaSuratMasuk ? '<span class="lencana ' + (k.deltaSuratMasuk > 0 ? 'ok' : 'neut') + '">' +
@@ -206,7 +238,6 @@ function renderDashboard(w) {
       '<span class="lencana ok">Tersimpan Aman</span>') +
     '</div>';
 
-  /* Grafik */
   h += '<div class="grafik-grid">' +
     '<div class="kartu"><div class="kartu-kepala"><div>' +
     '<div class="label-kecil mb4">Tren Aktivitas</div>' +
@@ -222,7 +253,6 @@ function renderDashboard(w) {
     '<div class="grafik-kotak" style="height:210px"><canvas id="grafikDistribusi"></canvas></div>' +
     '<div class="legenda" id="legendaDistribusi"></div></div></div>';
 
-  /* Analisis otomatis */
   if ((d.insight || []).length) {
     h += '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
       '<h3 style="font-size:16px">Analisis Otomatis</h3>' +
@@ -238,11 +268,10 @@ function renderDashboard(w) {
       }).join('') + '</div></div>';
   }
 
-  /* Dua panel bawah */
   h += '<div class="panel-grid">' + panelAntrean(d) + panelTerbaru(d) + '</div>';
 
   w.innerHTML = h;
-  setTimeout(function () { jalankanAman(function () { gambarGrafikDashboard(d); }, 'Grafik'); }, 40);
+  requestAnimationFrame(function () { jalankanAman(function () { gambarGrafikDashboard(d); }, 'Grafik'); });
 }
 
 function kartuKpi(label, nilai2, satuan, ikon, warna, kaki) {
@@ -325,7 +354,7 @@ function panelTerbaru(d) {
 }
 
 function gambarGrafikDashboard(d) {
-  if (typeof Chart === 'undefined') return;
+  if (typeof Chart === 'undefined') { setTimeout(function () { if (Adm.modulAktif === 'dashboard') gambarGrafikDashboard(d); }, 400); return; }
 
   var gelap = document.body.classList.contains('gelap');
   var grid = gelap ? 'rgba(255,255,255,.07)' : 'rgba(22,41,63,.07)';
@@ -333,8 +362,8 @@ function gambarGrafikDashboard(d) {
   Chart.defaults.font.family = "'Inter', sans-serif";
   Chart.defaults.font.size = 11;
   Chart.defaults.color = teks;
+  Chart.defaults.animation = { duration: 250 };
 
-  /* Tren */
   var c1 = el('grafikTren');
   if (c1 && d.tren) {
     if (Adm.grafik.tren) Adm.grafik.tren.destroy();
@@ -368,7 +397,6 @@ function gambarGrafikDashboard(d) {
     });
   }
 
-  /* Distribusi */
   var c2 = el('grafikDistribusi');
   if (c2 && d.distribusi && d.distribusi.nilai.length) {
     if (Adm.grafik.dist) Adm.grafik.dist.destroy();
@@ -409,10 +437,48 @@ function segarkanDashboard(btn) {
     tombolSibuk(btn, false);
     if (!r.success) { toast(r.message, 'galat'); return; }
     Adm.boot = r.data;
+    Sesi.simpanBoot(r.data);
+    daftarBerkasPrivat();
     renderKerangkaAdmin();
     renderModul('dashboard');
     toast('Data berhasil disinkronkan dari Google Sheets.', 'sukses');
   });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PEMBARUAN LOKAL (OPTIMISTIC UI)
+   ══════════════════════════════════════════════════════════════════ */
+
+/** Sisipkan / ganti satu record di data lokal lalu render seketika. */
+function upsertLokal(kunci, rec, sumber) {
+  if (!rec || !rec.id) return;
+  var wadah = sumber === 'master' ? Adm.boot.master : Adm.boot.data;
+  var arr = wadah[kunci] = wadah[kunci] || [];
+  for (var i = 0; i < arr.length; i++) {
+    if (String(arr[i].id) === String(rec.id)) {
+      var gabung = {};
+      Object.keys(arr[i]).forEach(function (k) { gabung[k] = arr[i][k]; });
+      Object.keys(rec).forEach(function (k) { gabung[k] = rec[k]; });
+      arr[i] = gabung;
+      Sesi.simpanBoot(Adm.boot);
+      return;
+    }
+  }
+  arr.push(rec);
+  Sesi.simpanBoot(Adm.boot);
+}
+
+function hapusLokal(kunci, id, sumber) {
+  var wadah = sumber === 'master' ? Adm.boot.master : Adm.boot.data;
+  var arr = wadah[kunci] || [];
+  for (var i = 0; i < arr.length; i++) {
+    if (String(arr[i].id) === String(id)) {
+      var dibuang = arr.splice(i, 1)[0];
+      Sesi.simpanBoot(Adm.boot);
+      return { indeks: i, rec: dibuang };
+    }
+  }
+  return null;
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -489,12 +555,23 @@ function renderModulUmum(w, kunci) {
   w.innerHTML = h;
 }
 
+/** Pencarian ditunda sedikit agar tabel tidak dirender ulang di setiap ketukan. */
+var _renderCari = tunda(function (kunci) {
+  var idInput = 'cari_' + kunci;
+  var aktif = document.activeElement;
+  var fokus = aktif && (aktif.id === idInput || (aktif.type === 'search' && aktif.closest('.tabel-alat')));
+  var posisi = fokus ? aktif.selectionStart : null;
+  renderModul(kunci);
+  if (fokus) {
+    var i = el(idInput) || $('.tabel-alat input[type=search]');
+    if (i) { i.focus(); try { i.setSelectionRange(posisi, posisi); } catch (e) {} }
+  }
+}, 180);
+
 function cariModul(kunci, teks) {
   Adm.filter[kunci] = teks;
   Adm.halaman[kunci] = 1;
-  var posisi = document.activeElement === el('cari_' + kunci);
-  renderModul(kunci);
-  if (posisi) { var i = el('cari_' + kunci); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+  _renderCari(kunci);
 }
 
 function gantiHalaman(idTabel, n) {
@@ -502,6 +579,7 @@ function gantiHalaman(idTabel, n) {
   if (idTabel === 'laporan') { gambarTabelLaporan(); return; }
   if (idTabel === 'antreanMhs') { renderAntreanPengajuan(el('admKonten'), 'mahasiswa'); return; }
   if (idTabel === 'antreanDosen') { renderAntreanPengajuan(el('admKonten'), 'dosen'); return; }
+  if (idTabel === 'log' || idTabel.indexOf('master_') === 0) { gambarTabPengaturan(); return; }
   renderModul(idTabel);
 }
 
@@ -576,7 +654,6 @@ function bukaFormModul(kunci, id) {
     }
   }
 
-  /* Lampiran berkas */
   isi += '<div class="garis"></div><div class="label-kecil mb8">Lampiran Berkas</div>' +
     '<label class="unggah" id="lampUnggah">' +
     '<div class="u-ikon"><i class="bi bi-paperclip"></i></div>' +
@@ -645,12 +722,16 @@ function simpanModul(kunci, id) {
     var lamp = window.__lampiranSementara;
     if (!lamp) return selesaiSimpan(r, kunci, btn);
 
-    tombolSibuk(btn, true, 'Mengunggah berkas…');
-    return kirim('lampirkanScan', {
+    // Data sudah tersimpan → tutup dialog seketika, unggah lampiran di latar
+    selesaiSimpan(r, kunci, btn);
+    toast('Mengunggah lampiran di latar belakang…', 'info', 2500);
+    kirim('lampirkanScan', {
       modul: kunci, id: r.data.id, nama: lamp.nama, mime: lamp.mime, base64: lamp.base64
     }, APP.batasWaktuUnggah).then(function (r2) {
-      if (!r2.success) toast('Data tersimpan, tetapi berkas gagal diunggah: ' + r2.message, 'peringatan');
-      return selesaiSimpan(r, kunci, btn);
+      if (!r2.success) { toast('Data tersimpan, tetapi berkas gagal diunggah: ' + r2.message, 'peringatan'); return; }
+      upsertLokal(kunci, r2.data.record);
+      if (Adm.modulAktif === kunci && !_tumpukanModal.length) renderModul(kunci);
+      toast('Lampiran berhasil diunggah.', 'sukses');
     });
   });
 }
@@ -660,13 +741,23 @@ function selesaiSimpan(r, kunci, btn) {
   window.__lampiranSementara = null;
   tutupModal();
   toast(r.message, 'sukses');
-  return segarkanModul(kunci);
+  upsertLokal(kunci, r.data);
+  if (Adm.modulAktif === kunci) renderModul(kunci);
+  return segarkanModul(kunci, true);
 }
 
-function segarkanModul(kunci) {
+/**
+ * Muat ulang satu modul dari server.
+ * @param diam  true → tidak render ulang bila pengguna sedang membuka dialog
+ */
+function segarkanModul(kunci, diam) {
   return kirim('refreshModul', { modul: kunci }).then(function (r) {
-    if (r.success) Adm.boot.data[kunci] = r.data;
-    if (Adm.modulAktif === kunci) renderModul(kunci);
+    if (r.success) {
+      Adm.boot.data[kunci] = r.data;
+      Sesi.simpanBoot(Adm.boot);
+      if (kunci === 'pengajuanMhs' || kunci === 'pengajuanDosen') daftarBerkasPrivat();
+    }
+    if (Adm.modulAktif === kunci && !(diam && _tumpukanModal.length)) renderModul(kunci);
     return r;
   });
 }
@@ -679,17 +770,22 @@ function hapusData(kunci, id) {
     ya: 'Ya, Hapus Permanen', bahaya: true
   }).then(function (ya) {
     if (!ya) return;
+    // Hilang dari tabel seketika; dikembalikan bila server menolak
+    var cadangan = hapusLokal(kunci, id);
+    if (Adm.modulAktif === kunci) renderModul(kunci);
     kirim('hapusRecord', { modul: kunci, id: id }).then(function (r) {
-      if (!r.success) { toast(r.message, 'galat'); return; }
+      if (!r.success) {
+        if (cadangan) { Adm.boot.data[kunci].splice(cadangan.indeks, 0, cadangan.rec); Sesi.simpanBoot(Adm.boot); }
+        if (Adm.modulAktif === kunci) renderModul(kunci);
+        toast(r.message, 'galat');
+        return;
+      }
       toast(r.message, 'sukses');
-      segarkanModul(kunci);
     });
   });
 }
 
 /* ── Detail record — data di kiri, pratinjau dokumen di kanan ───── */
-
-/** Arahkan ke editor yang sesuai untuk tiap modul. */
 function bukaEditModul(kunci, id) {
   tutupModal();
   setTimeout(function () {
@@ -702,10 +798,9 @@ function bukaEditModul(kunci, id) {
       }
       return bukaFormModul(kunci, id);
     }, 'Editor ' + kunci);
-  }, 120);
+  }, 60);
 }
 
-/** Dokumen utama sebuah record — dipakai untuk pratinjau berdampingan. */
 function berkasUtama_(r) {
   return r.pdfUrl || r.fileScanUrl || r.fileUrl || r.audioUrl || '';
 }
@@ -719,9 +814,8 @@ function lihatDetail(kunci, id) {
   var judulDok = nomor || r.perihal || r.namaDokumen || 'Dokumen';
 
   var lewati = ['id', '__baris', 'isiNaskah', 'menimbang', 'mengingat', 'menetapkan',
-                'riwayatVerifikasi', 'berkas'];
+                'riwayatVerifikasi', 'berkas', 'dataIsian'];
 
-  /* ── Kolom kiri: rincian data ── */
   var kiri = '<div class="label-kecil mb8">Rincian Data</div>' +
              '<div class="tabel-bungkus"><table class="data"><tbody>';
   Object.keys(r).forEach(function (k) {
@@ -749,6 +843,15 @@ function lihatDetail(kunci, id) {
     kiri += '<tr><td style="width:170px;color:var(--ink-2);font-size:12.5px">' + esc(labelKolom(k)) +
             '</td><td>' + tampilan + '</td></tr>';
   });
+
+  // Isian kustom template (dataIsian)
+  var isian = {};
+  try { isian = typeof r.dataIsian === 'string' ? JSON.parse(r.dataIsian || '{}') : (r.dataIsian || {}); } catch (e) {}
+  Object.keys(isian).forEach(function (k) {
+    if (!isian[k]) return;
+    kiri += '<tr><td style="width:170px;color:var(--ink-2);font-size:12.5px">' + esc(labelDariKunci(k)) +
+      '</td><td>' + esc(String(isian[k]).replace(/<[^>]+>/g, ' ').substring(0, 400)) + '</td></tr>';
+  });
   kiri += '</tbody></table></div>';
 
   if (r.isiNaskah) {
@@ -756,7 +859,6 @@ function lihatDetail(kunci, id) {
             '<div class="dok-pratinjau" style="max-height:260px">' + r.isiNaskah + '</div>';
   }
 
-  /* ── Kolom kanan: pratinjau dokumen berdampingan ── */
   var dok = berkasUtama_(r);
   var idb = idDrive(dok);
   var kanan = '<div class="baris antara g8 mb8 bungkus">' +
@@ -766,7 +868,7 @@ function lihatDetail(kunci, id) {
       'Perbesar</button>' : '') + '</div>';
 
   kanan += dok
-    ? '<div class="pratinjau-bingkai" style="height:52vh"><iframe src="' +
+    ? '<div class="pratinjau-bingkai" style="height:52vh"><iframe loading="lazy" src="' +
       esc(idb ? urlPratinjauDrive(idb) : dok) + '" title="Pratinjau dokumen"></iframe></div>' +
       '<div class="baris g8 mt12 bungkus">' +
       '<a class="btn btn-navy btn-sm sisa" href="' + esc(idb ? urlUnduhDrive(idb) : dok) +
@@ -782,7 +884,6 @@ function lihatDetail(kunci, id) {
         kunci + '\',\'' + r.id + '\')"><i class="bi bi-upload"></i> Unggah Scan Asli</button></div>' : '') +
       '</div>';
 
-  /* ── Lampiran scan asli terpisah (bila dokumen utama adalah PDF terbit) ── */
   if (r.pdfUrl && r.fileScanUrl) {
     kanan += '<div class="garis"></div>' +
       '<div class="baris antara g8 bungkus">' +
@@ -793,6 +894,9 @@ function lihatDetail(kunci, id) {
       '<i class="bi bi-eye"></i> Lihat Scan</button></div>';
   }
 
+  var bisaUbah = Sesi.boleh('tulis') &&
+    (['suratKeluar', 'sk', 'beritaAcara'].indexOf(kunci) < 0 || r.status === 'DRAF');
+
   bukaModal({
     lebar: true,
     judul: 'Detail ' + infoModul(kunci).nama,
@@ -800,18 +904,24 @@ function lihatDetail(kunci, id) {
     tanpaFokus: true,
     isi: '<div class="detail-grid"><div>' + kiri + '</div><div>' + kanan + '</div></div>',
     kaki:
-      (Sesi.boleh('tulis')
+      (bisaUbah
         ? '<button class="btn btn-navy" onclick="bukaEditModul(\'' + kunci + '\',\'' + r.id + '\')">' +
-          '<i class="bi bi-pencil-square"></i> Edit Data</button>' +
-          '<button class="btn btn-garis" onclick="bukaUnggahScan(\'' + kunci + '\',\'' + r.id + '\')">' +
-          '<i class="bi bi-upload"></i> Unggah Scan Asli</button>'
-        : '') +
+          '<i class="bi bi-pencil-square"></i> Edit Data</button>' : '') +
+      (Sesi.boleh('tulis')
+        ? '<button class="btn btn-garis" onclick="bukaUnggahScan(\'' + kunci + '\',\'' + r.id + '\')">' +
+          '<i class="bi bi-upload"></i> Unggah Scan Asli</button>' : '') +
       (Sesi.boleh('hapus')
         ? '<button class="btn btn-bahaya" onclick="tutupModal();hapusData(\'' + kunci + '\',\'' +
           r.id + '\')"><i class="bi bi-trash"></i> Hapus</button>'
         : '') +
       '<button class="btn btn-hantu" onclick="tutupModal()">Tutup</button>'
   });
+}
+
+function labelDariKunci(k) {
+  return String(k).toLowerCase().split('_').filter(Boolean).map(function (w) {
+    return w.charAt(0).toUpperCase() + w.substring(1);
+  }).join(' ');
 }
 
 /* ── Unggah hasil pindai surat asli bertanda tangan basah ────────── */
@@ -855,7 +965,6 @@ function pilihScanAsli(input) {
   bacaBerkasBase64(f).then(function (b64) {
     window.__scanSementara = { nama: f.name, mime: f.type, base64: b64 };
     el('scanNama').textContent = f.name + ' · ' + formatUkuran(f.size);
-    toast('Berkas siap diunggah.', 'sukses');
   }).catch(function (e) { toast(e.message, 'galat'); });
 }
 
@@ -875,7 +984,8 @@ function simpanScanAsli(kunci, id) {
     window.__scanSementara = null;
     tutupModal();
     toast('Scan asli berhasil diarsipkan ke Google Drive.', 'sukses');
-    segarkanModul(kunci);
+    upsertLokal(kunci, r.data.record);
+    if (Adm.modulAktif === kunci && !_tumpukanModal.length) renderModul(kunci);
   });
 }
 
@@ -889,6 +999,11 @@ function labelKolom(k) {
 
 function eksporModul(kunci) {
   var kolom = KOLOM_MODUL[kunci] || [];
+  if (!kolom.length && (kunci === 'pengajuanMhs' || kunci === 'pengajuanDosen')) {
+    kolom = [{ k: 'noRef', l: 'No. Referensi' }, { k: 'tanggal', l: 'Tanggal' }, { k: 'nama', l: 'Nama' },
+             { k: kunci === 'pengajuanDosen' ? 'nuptk' : 'nim', l: 'Identitas' }, { k: 'prodi', l: 'Prodi' },
+             { k: kunci === 'pengajuanDosen' ? 'klasifikasi' : 'skema', l: 'Kategori' }, { k: 'status', l: 'Status' }];
+  }
   var data = Adm.boot.data[kunci] || [];
   if (!data.length) { toast('Tidak ada data untuk diekspor.', 'peringatan'); return; }
   unduhBerkas('e-SURAT_' + kunci + '_' + tglInput() + '.csv', keCsv(kolom, data));
@@ -931,10 +1046,10 @@ function bukaGantiSandi() {
     sempit: true,
     judul: 'Ganti Kata Sandi',
     sub: 'Gunakan kombinasi yang kuat dan tidak dipakai di layanan lain.',
-    isi: bidangTeks({ id: 'sandiLama', label: 'Kata Sandi Saat Ini', tipe: 'password', wajib: true }) +
-         bidangTeks({ id: 'sandiBaru', label: 'Kata Sandi Baru', tipe: 'password', wajib: true,
-                      bantu: 'Minimal 6 karakter.' }) +
-         bidangTeks({ id: 'sandiUlang', label: 'Ulangi Kata Sandi Baru', tipe: 'password', wajib: true }),
+    isi: bidangTeks({ id: 'sandiLama', label: 'Kata Sandi Saat Ini', tipe: 'password', wajib: true, otomatis: 'current-password' }) +
+         bidangTeks({ id: 'sandiBaru', label: 'Kata Sandi Baru', tipe: 'password', wajib: true, otomatis: 'new-password',
+                      bantu: 'Minimal 8 karakter — campurkan huruf, angka, dan simbol.' }) +
+         bidangTeks({ id: 'sandiUlang', label: 'Ulangi Kata Sandi Baru', tipe: 'password', wajib: true, otomatis: 'new-password' }),
     kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
           '<button class="btn btn-utama" id="btnSandi" onclick="simpanSandi()">' +
           '<i class="bi bi-shield-lock"></i> Perbarui Kata Sandi</button>'
@@ -944,7 +1059,7 @@ function bukaGantiSandi() {
 function simpanSandi() {
   if (!validasiForm(null, [
     { id: 'sandiLama', wajib: true },
-    { id: 'sandiBaru', wajib: true, min: 6 },
+    { id: 'sandiBaru', wajib: true, min: 8 },
     { id: 'sandiUlang', wajib: true }
   ])) return;
 

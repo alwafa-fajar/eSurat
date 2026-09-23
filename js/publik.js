@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
-   e-SURAT — js/publik.js
-   Portal layanan terbuka: hero, formulir mahasiswa & dosen, pelacakan.
+   e-SURAT — js/publik.js  (v4.2)
+   Portal layanan terbuka: hero, formulir pengajuan dalam POPUP fokus,
+   draf otomatis, pelacakan, dan perbaikan berkas (status Perlu Revisi).
    ═══════════════════════════════════════════════════════════════════ */
 
 var Publik = {
@@ -8,15 +9,12 @@ var Publik = {
   tabAktif: 'mahasiswa',
   heroIndex: 0,
   heroTimer: null,
-  berkas: { mhs: {}, dsn: {} },       // { kunci: {nama, mime, base64, label, ukuran} }
-  tambahan: { mhs: [], dsn: [] }
+  berkas: { mhs: {}, dsn: {} },       // { kunci: {kunci, nama, mime, base64, label, ukuran} }
+  tambahan: { mhs: [], dsn: [] },
+  popupTerbuka: false,
+  perbaikan: []
 };
 
-/* ── Berkas persyaratan — diambil dari Master Data (dapat diatur admin) ──
-   Admin/Super Admin menentukan daftar, label, dan status wajib/opsional
-   dari Pengaturan → Berkas Syarat Pengajuan. Daftar di bawah hanya
-   dipakai sebagai cadangan bila master data belum terisi.
-   ─────────────────────────────────────────────────────────────────────── */
 var BERKAS_CADANGAN = {
   mahasiswa: [
     { kunci: 'formulir', label: 'Formulir Permohonan Resmi Bermeterai', wajib: true,
@@ -32,8 +30,17 @@ var BERKAS_CADANGAN = {
   ]
 };
 
-var BERKAS_MHS = [];   // diisi saat portal dimuat
+var BERKAS_MHS = [];
 var BERKAS_DSN = [];
+
+var ID_DRAF = {
+  mhs: ['mhsNama','mhsNim','mhsProdi','mhsSemester','mhsWa','mhsEmail','mhsAlasan'],
+  dsn: ['dsnNama','dsnNuptk','dsnProdi','dsnJabfung','dsnWa','dsnEmail','dsnJudul','dsnPenerbit','dsnVolume','dsnDoi']
+};
+var WAJIB_FORM = {
+  mhs: ['mhsNama','mhsNim','mhsProdi','mhsSemester','mhsWa','mhsEmail','mhsAlasan'],
+  dsn: ['dsnNama','dsnNuptk','dsnProdi','dsnWa','dsnEmail','dsnJudul']
+};
 
 function muatBerkasSyarat(data) {
   var bs = data.berkasSyarat || {};
@@ -44,6 +51,8 @@ function muatBerkasSyarat(data) {
 /* ── Render portal setelah bootstrap ────────────────────────────── */
 function renderPortal(data) {
   Publik.data = data;
+  Publik.berkas = { mhs: {}, dsn: {} };
+  Publik.tambahan = { mhs: [], dsn: [] };
   var i = data.institusi || {};
 
   el('pubNamaInstitusi').textContent = i.singkatan || i.nama || 'e-SURAT';
@@ -66,10 +75,13 @@ function renderPortal(data) {
   muatBerkasSyarat(data);
   renderBerkas('mhs', BERKAS_MHS, data.tampilan);
   renderBerkas('dsn', BERKAS_DSN, data.tampilan);
+  gambarBerkasTambahan('mhs');
+  gambarBerkasTambahan('dsn');
   renderSidebarPublik(data);
   pasangJatuhkan('mhs');
   pasangJatuhkan('dsn');
-  pulihkanDraf();
+  pulihkanDraf(true);
+  tandaiInfoDraf();
 
   var t = data.tampilan || {};
   var infoFormat = 'Format ' + (t.uploadFormat || ['pdf', 'jpg']).join('/').toUpperCase() +
@@ -77,7 +89,10 @@ function renderPortal(data) {
   el('mhsFormatInfo').textContent = infoFormat;
   el('dsnFormatInfo').textContent = infoFormat;
 
-  if (t.popupAktif) setTimeout(tampilkanPopupPengumuman, 900);
+  if (t.popupAktif && !renderPortal._popupSudah) {
+    renderPortal._popupSudah = true;
+    setTimeout(tampilkanPopupPengumuman, 900);
+  }
 }
 
 /* ── Hero slideshow ─────────────────────────────────────────────── */
@@ -97,9 +112,10 @@ function renderHero(data) {
     : '';
 
   gantiHero(0);
+  clearInterval(Publik.heroTimer);
   if (slide.length > 1 && (data.tampilan || {}).heroAktif !== false) {
-    clearInterval(Publik.heroTimer);
     Publik.heroTimer = setInterval(function () {
+      if (Publik.popupTerbuka || document.hidden) return;
       gantiHero((Publik.heroIndex + 1) % slide.length);
     }, (data.tampilan || {}).heroDurasi || 6000);
   }
@@ -116,9 +132,10 @@ function gantiHero(n) {
                                   ' · Tanpa Perlu Login Kampus';
   $$('#heroTitik i').forEach(function (t, i) { t.classList.toggle('aktif', i === n); });
 
-  if (s.gambarUrl) {
+  if (s.gambarUrl && /^https:\/\//i.test(s.gambarUrl)) {
     el('pubHero').style.backgroundImage =
-      'linear-gradient(120deg, rgba(22,41,63,.94) 0%, rgba(30,58,95,.82) 100%), url(' + s.gambarUrl + ')';
+      'linear-gradient(120deg, rgba(22,41,63,.94) 0%, rgba(30,58,95,.82) 100%), url("' +
+      String(s.gambarUrl).replace(/["\\)]/g, '') + '")';
     el('pubHero').style.backgroundSize = 'cover';
     el('pubHero').style.backgroundPosition = 'center';
   }
@@ -140,6 +157,7 @@ function renderRunningText(data) {
 }
 
 function tampilkanPopupPengumuman() {
+  if (Publik.popupTerbuka) return;
   var p = (Publik.data.pengumuman || []).filter(function (x) { return x.tipe === 'popup'; })[0];
   if (!p) return;
   try { if (sessionStorage.getItem('esurat_popup_' + p.id)) return; } catch (e) {}
@@ -229,7 +247,9 @@ function pasangPilihan(grup) {
       p.classList.add('terpilih');
       var r = p.querySelector('input');
       if (r) r.checked = true;
-      tandaiLangkah(grup.indexOf('mhs') === 0 ? 'Mhs' : 'Dsn', 2);
+      var pre = grup.indexOf('mhs') === 0 ? 'mhs' : 'dsn';
+      tandaiLangkah(pre === 'mhs' ? 'Mhs' : 'Dsn', 2);
+      simpanDrafDiam(pre);
     });
   });
 }
@@ -245,18 +265,19 @@ function renderBerkas(pre, daftar, tampilan) {
   }
 
   w.innerHTML = daftar.map(function (b) {
-    return '<label class="unggah" id="' + pre + 'U_' + b.kunci + '">' +
-      '<div class="u-ikon"><i class="bi ' + b.ikon + '"></i></div>' +
+    return '<label class="unggah" id="' + pre + 'U_' + esc(b.kunci) + '">' +
+      '<div class="u-ikon"><i class="bi ' + esc(b.ikon) + '"></i></div>' +
       '<div class="u-teks">' +
         '<div class="u-nama">' + esc(b.label) +
         (b.wajib ? ' <span class="lencana emas">Wajib</span>' : ' <span class="lencana neut">Opsional</span>') +
         '</div>' +
         '<div class="u-desk">' + esc(b.desk) + '</div>' +
-        '<div class="u-berkas sembunyi" id="' + pre + 'N_' + b.kunci + '"></div>' +
+        '<div class="u-berkas sembunyi" id="' + pre + 'N_' + esc(b.kunci) + '"></div>' +
       '</div>' +
       '<span class="btn btn-navy btn-sm"><i class="bi bi-file-earmark-arrow-up"></i> Pilih Berkas</span>' +
       '<input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" ' +
-      'onchange="pilihBerkas(this,\'' + pre + '\',\'' + b.kunci + '\',\'' + esc(b.label) + '\')">' +
+      'onchange="pilihBerkas(this,\'' + pre + '\',\'' + esc(b.kunci) + '\',\'' +
+      esc(String(b.label).replace(/'/g, '')) + '\')">' +
       '</label>';
   }).join('');
 }
@@ -269,27 +290,35 @@ function pilihBerkas(input, pre, kunci, label) {
   var galat = validasiBerkas(file, t.uploadMaxMb || 2, t.uploadFormat);
   if (galat) { toast(galat, 'galat'); input.value = ''; return; }
 
+  // Tampilkan seketika (optimistic) — pembacaan berkas berjalan di latar
+  var kotak = el(pre + 'U_' + kunci);
+  var teks = el(pre + 'N_' + kunci);
+  if (kotak) kotak.classList.add('terisi');
+  if (teks) {
+    teks.innerHTML = '<span class="spinner"></span> ' + esc(file.name);
+    teks.classList.remove('sembunyi');
+  }
+
   bacaBerkasBase64(file).then(function (b64) {
     Publik.berkas[pre][kunci] = {
-      label: label, nama: file.name, mime: file.type || 'application/octet-stream',
+      kunci: kunci, label: label, nama: file.name, mime: file.type || 'application/octet-stream',
       base64: b64, ukuran: file.size
     };
-    var kotak = el(pre + 'U_' + kunci);
-    if (kotak) kotak.classList.add('terisi');
-    var teks = el(pre + 'N_' + kunci);
-    if (teks) {
-      teks.innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + esc(file.name) +
-                       ' (' + formatUkuran(file.size) + ')';
-      teks.classList.remove('sembunyi');
-    }
+    if (teks) teks.innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + esc(file.name) +
+                               ' (' + formatUkuran(file.size) + ')';
     tandaiLangkah(pre === 'mhs' ? 'Mhs' : 'Dsn', 3);
-    toast('"' + file.name + '" siap diunggah.', 'sukses');
-  }).catch(function (e) { toast(e.message, 'galat'); });
+    perbaruiProgres();
+  }).catch(function (e) {
+    if (kotak) kotak.classList.remove('terisi');
+    if (teks) teks.classList.add('sembunyi');
+    toast(e.message, 'galat');
+  });
 }
 
 function pasangJatuhkan(pre) {
   var zona = el(pre + 'Jatuhkan');
-  if (!zona) return;
+  if (!zona || zona.dataset.terpasang) return;
+  zona.dataset.terpasang = '1';
 
   var input = document.createElement('input');
   input.type = 'file';
@@ -315,11 +344,12 @@ function pasangJatuhkan(pre) {
 function tambahBerkasTambahan(pre, files) {
   var t = (Publik.data && Publik.data.tampilan) || {};
   Array.prototype.forEach.call(files, function (file) {
+    if (Publik.tambahan[pre].length >= 6) { toast('Maksimal 6 lampiran pendukung.', 'peringatan'); return; }
     var galat = validasiBerkas(file, t.uploadMaxMb || 2, t.uploadFormat);
     if (galat) { toast(galat, 'galat'); return; }
     bacaBerkasBase64(file).then(function (b64) {
       Publik.tambahan[pre].push({
-        label: 'Lampiran Pendukung', nama: file.name,
+        kunci: '', label: 'Lampiran Pendukung', nama: file.name,
         mime: file.type || 'application/octet-stream', base64: b64, ukuran: file.size
       });
       gambarBerkasTambahan(pre);
@@ -366,7 +396,6 @@ function renderSidebarPublik(data) {
 
   var h = '';
 
-  /* Cek status cepat */
   h += '<div class="kartu">' +
     '<div class="baris g10 mb12"><i class="bi bi-broadcast-pin tx-emas" style="font-size:18px"></i>' +
     '<div><h3 style="font-size:16px">Cek Status Cepat</h3>' +
@@ -377,7 +406,6 @@ function renderSidebarPublik(data) {
     '<i class="bi bi-search"></i> Lacak Status Sekarang</button>' +
     '<div id="cepatHasil" class="mt16"></div></div>';
 
-  /* Alur verifikasi */
   if (alurM.length || alurD.length) {
     h += '<div class="kartu"><div class="kartu-kepala"><div>' +
       '<h3 style="font-size:16px">Alur Verifikasi Berjenjang</h3>' +
@@ -401,7 +429,6 @@ function renderSidebarPublik(data) {
     h += '</div>';
   }
 
-  /* Unduh template */
   var bt = data.berkasTemplate || [];
   if (bt.length) {
     h += '<div class="kartu"><div class="kartu-kepala"><div>' +
@@ -420,7 +447,6 @@ function renderSidebarPublik(data) {
       }).join('') + '</div></div>';
   }
 
-  /* Statistik & narahubung */
   h += '<div class="kartu" style="background:linear-gradient(150deg,#16293F,#1E3A5F);border:none;color:#fff">' +
     '<div class="baris g10 mb16"><i class="bi bi-question-circle tx-emas" style="font-size:18px"></i>' +
     '<h3 style="font-size:16px;color:#fff">Informasi &amp; Narahubung</h3></div>' +
@@ -445,16 +471,64 @@ function infoBaris(judul, isi) {
     '<div class="tx-sm" style="color:rgba(255,255,255,.72);line-height:1.6">' + esc(isi) + '</div></div>';
 }
 
-/* ── Tab & langkah ──────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════
+   POPUP FORMULIR PENGAJUAN
+   Formulir tidak lagi tampil di halaman — dibuka sebagai jendela
+   fokus. Node formulir dipindahkan utuh (isian & berkas tidak hilang).
+   ══════════════════════════════════════════════════════════════════ */
+function bukaFormPengajuan(jenis) {
+  var dosen = jenis === 'dosen';
+  Publik.tabAktif = dosen ? 'dosen' : 'mahasiswa';
+
+  tampil(el('tabMahasiswa'), !dosen);
+  tampil(el('tabDosen'), dosen);
+  el('pfJudul').textContent = dosen ? 'Pengajuan Insentif Karya Ilmiah Dosen'
+                                    : 'Pengajuan Keringanan UKT & Asrama';
+  el('pfLabel').textContent = 'Formulir Resmi · ' + (((Publik.data || {}).institusi || {}).singkatan || 'e-SURAT');
+  el('pfIkon').className = 'pf-ikon' + (dosen ? ' emas' : '');
+  el('pfIkon').innerHTML = '<i class="bi ' + (dosen ? 'bi-person-badge' : 'bi-mortarboard') + '"></i>';
+
+  var p = el('popupForm');
+  p.classList.add('tampil');
+  p.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('pf-buka');
+  Publik.popupTerbuka = true;
+  el('pfIsi').scrollTop = 0;
+  perbaruiProgres();
+
+  setTimeout(function () {
+    var pertama = el(dosen ? 'dsnNama' : 'mhsNama');
+    if (pertama && !pertama.value && window.innerWidth > 760) pertama.focus();
+  }, 120);
+}
+
+function tutupFormPengajuan() {
+  var p = el('popupForm');
+  if (!p || !p.classList.contains('tampil')) return;
+  simpanDrafDiam(Publik.tabAktif === 'dosen' ? 'dsn' : 'mhs');
+  p.classList.remove('tampil');
+  p.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('pf-buka');
+  Publik.popupTerbuka = false;
+  tandaiInfoDraf();
+}
+
+/** Klik area gelap di luar kotak menutup popup (draf tetap tersimpan). */
+document.addEventListener('mousedown', function (e) {
+  if (e.target && e.target.id === 'popupForm') tutupFormPengajuan();
+});
+
+/** Kompatibilitas: tombol lama gantiTabPublik tetap berfungsi. */
 function gantiTabPublik(tab) {
-  Publik.tabAktif = tab;
-  $$('.pub-tab button').forEach(function (b) {
-    b.classList.toggle('aktif', b.dataset.tab === tab);
-  });
-  tampil(el('tabMahasiswa'), tab === 'mahasiswa');
-  tampil(el('tabDosen'), tab === 'dosen');
-  tampil(el('tabLacak'), tab === 'lacak');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (tab === 'mahasiswa' || tab === 'dosen') { bukaFormPengajuan(tab); return; }
+  tutupFormPengajuan();
+  var k = el('tabLacak');
+  if (k) {
+    k.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    k.classList.add('sorot');
+    setTimeout(function () { k.classList.remove('sorot'); }, 1200);
+    setTimeout(function () { var i = el('lacakNomor'); if (i) i.focus({ preventScroll: true }); }, 350);
+  }
 }
 
 function tandaiLangkah(pre, n) {
@@ -467,27 +541,51 @@ function tandaiLangkah(pre, n) {
   });
 }
 
-/* ── Draf lokal ─────────────────────────────────────────────────── */
-function simpanDraf(pre) {
-  var kunci = pre === 'mhs' ? APP.kunciDrafMhs : APP.kunciDrafDsn;
-  var ids = pre === 'mhs'
-    ? ['mhsNama','mhsNim','mhsProdi','mhsSemester','mhsWa','mhsEmail','mhsAlasan']
-    : ['dsnNama','dsnNuptk','dsnProdi','dsnJabfung','dsnWa','dsnEmail','dsnJudul','dsnPenerbit','dsnVolume','dsnDoi'];
+/** Bilah kelengkapan formulir di bagian atas popup. */
+function perbaruiProgres() {
+  var pre = Publik.tabAktif === 'dosen' ? 'dsn' : 'mhs';
+  var daftar = pre === 'mhs' ? BERKAS_MHS : BERKAS_DSN;
+  var total = WAJIB_FORM[pre].length, isi = 0;
+  WAJIB_FORM[pre].forEach(function (id) { if (ambilNilai(id)) isi++; });
+  daftar.forEach(function (b) {
+    if (!b.wajib) return;
+    total++;
+    if (Publik.berkas[pre][b.kunci]) isi++;
+  });
+  var bar = el('pfProgres');
+  if (bar) bar.style.width = Math.round((isi / Math.max(total, 1)) * 100) + '%';
+}
 
+/* ── Draf lokal (tersimpan otomatis) ────────────────────────────── */
+function kumpulkanDraf(pre) {
   var o = {};
-  ids.forEach(function (id) { o[id] = ambilNilai(id); });
+  ID_DRAF[pre].forEach(function (id) { o[id] = ambilNilai(id); });
   var r = $('input[name="' + (pre === 'mhs' ? 'mhsSkema' : 'dsnKlas') + '"]:checked');
   if (r) o.__pilihan = r.value;
+  return o;
+}
 
+function simpanDraf(pre) {
   try {
-    localStorage.setItem(kunci, JSON.stringify(o));
+    localStorage.setItem(pre === 'mhs' ? APP.kunciDrafMhs : APP.kunciDrafDsn, JSON.stringify(kumpulkanDraf(pre)));
     toast('Draf tersimpan di peramban ini. Isian tidak hilang meski tab ditutup.', 'sukses');
   } catch (e) {
     toast('Peramban menolak penyimpanan draf.', 'peringatan');
   }
 }
 
-function pulihkanDraf() {
+function simpanDrafDiam(pre) {
+  try {
+    var o = kumpulkanDraf(pre);
+    var terisi = ID_DRAF[pre].some(function (id) { return o[id]; });
+    var k = pre === 'mhs' ? APP.kunciDrafMhs : APP.kunciDrafDsn;
+    if (terisi) localStorage.setItem(k, JSON.stringify(o));
+  } catch (e) {}
+}
+
+var simpanDrafOtomatis = tunda(function (pre) { simpanDrafDiam(pre); perbaruiProgres(); }, 500);
+
+function pulihkanDraf(diam) {
   [['mhs', APP.kunciDrafMhs, 'mhsSkema'], ['dsn', APP.kunciDrafDsn, 'dsnKlas']].forEach(function (x) {
     var s = null;
     try { s = localStorage.getItem(x[1]); } catch (e) {}
@@ -495,11 +593,10 @@ function pulihkanDraf() {
     var o;
     try { o = JSON.parse(s); } catch (e) { return; }
 
-    var terisi = false;
     Object.keys(o).forEach(function (id) {
       if (id === '__pilihan') return;
       var e2 = el(id);
-      if (e2 && o[id]) { e2.value = o[id]; terisi = true; }
+      if (e2 && o[id]) e2.value = o[id];
     });
     if (o.__pilihan) {
       $$('.pilihan[data-grup="' + x[2] + '"]').forEach(function (p) {
@@ -509,12 +606,22 @@ function pulihkanDraf() {
         if (r) r.checked = cocok;
       });
     }
-    if (terisi) toast('Draf pengajuan sebelumnya dipulihkan.', 'info');
+  });
+  var h = el('mhsAlasanHitung');
+  if (h && el('mhsAlasan')) h.textContent = el('mhsAlasan').value.length;
+}
+
+function tandaiInfoDraf() {
+  [['mhs', APP.kunciDrafMhs, 'drafInfoMhs'], ['dsn', APP.kunciDrafDsn, 'drafInfoDsn']].forEach(function (x) {
+    var ada = false;
+    try { ada = !!localStorage.getItem(x[1]); } catch (e) {}
+    tampil(el(x[2]), ada);
   });
 }
 
 function hapusDraf(pre) {
   try { localStorage.removeItem(pre === 'mhs' ? APP.kunciDrafMhs : APP.kunciDrafDsn); } catch (e) {}
+  tandaiInfoDraf();
 }
 
 /* ── Kirim pengajuan mahasiswa ──────────────────────────────────── */
@@ -545,7 +652,8 @@ function kirimPengajuanMhs(e) {
   var muatan = {
     nama: ambilNilai('mhsNama'), nim: ambilNilai('mhsNim'), prodi: ambilNilai('mhsProdi'),
     semester: ambilNilai('mhsSemester'), whatsapp: ambilNilai('mhsWa'), email: ambilNilai('mhsEmail'),
-    skema: skema.value, alasan: ambilNilai('mhsAlasan'), berkas: kumpul.berkas
+    skema: skema.value, alasan: ambilNilai('mhsAlasan'), berkas: kumpul.berkas,
+    situs: ambilNilai('mhsSitus')
   };
 
   tombolSibuk(btn, true, 'Mengirim berkas…');
@@ -558,6 +666,7 @@ function kirimPengajuanMhs(e) {
     renderBerkas('mhs', BERKAS_MHS, Publik.data.tampilan);
     gambarBerkasTambahan('mhs');
     tandaiLangkah('Mhs', 1);
+    tutupFormPengajuan();
     tampilkanSukses(r.data, 'mahasiswa');
   });
 }
@@ -591,7 +700,7 @@ function kirimPengajuanDsn(e) {
     jabatanFungsional: ambilNilai('dsnJabfung'), whatsapp: ambilNilai('dsnWa'),
     email: ambilNilai('dsnEmail'), klasifikasi: klas.value, judulKarya: ambilNilai('dsnJudul'),
     penerbit: ambilNilai('dsnPenerbit'), volume: ambilNilai('dsnVolume'), doi: ambilNilai('dsnDoi'),
-    berkas: kumpul.berkas
+    berkas: kumpul.berkas, situs: ambilNilai('dsnSitus')
   };
 
   tombolSibuk(btn, true, 'Mengirim berkas…');
@@ -604,6 +713,7 @@ function kirimPengajuanDsn(e) {
     renderBerkas('dsn', BERKAS_DSN, Publik.data.tampilan);
     gambarBerkasTambahan('dsn');
     tandaiLangkah('Dsn', 1);
+    tutupFormPengajuan();
     tampilkanSukses(r.data, 'dosen');
   });
 }
@@ -676,6 +786,7 @@ function lacakCepat() {
       '<div class="tx-sm tx-3 mt4">' + esc(d.nama) + ' · ' + esc(d.identitas) + '</div></div>' +
       '<div class="lacak-isi"><div class="linimasa">' +
       d.langkah.map(itemLinimasa).join('') + '</div>' +
+      (d.bolehPerbaiki ? tombolPerbaikan(d) : '') +
       (d.pdfUrl ? '<button class="btn btn-utama btn-blok mt16" onclick="pratinjauBerkas(\'' +
         esc(d.pdfUrl) + '\',\'Surat Keterangan\')">' +
         '<i class="bi bi-file-earmark-pdf"></i> Lihat Surat Keterangan</button>' : '') +
@@ -694,8 +805,17 @@ function kartuLacak(d) {
     (d.prodi ? '<span><i class="bi bi-mortarboard"></i> ' + esc(d.prodi) + '</span>' : '') +
     '<span><i class="bi bi-calendar3"></i> ' + tglJam(d.tanggal) + '</span></div></div>' +
 
-    '<div class="lacak-isi">' +
-    '<div class="baris antara g10 mb16 bungkus">' +
+    '<div class="lacak-isi">';
+
+  if (d.bolehPerbaiki) {
+    h += '<div class="kotak-revisi mb16"><div class="baris g10" style="align-items:flex-start">' +
+      '<i class="bi bi-pencil-square" style="font-size:18px;margin-top:1px"></i><div class="sisa">' +
+      '<div class="tebal mb4">Berkas Anda perlu diperbaiki</div>' +
+      (d.catatanRevisi ? '<div class="tx-sm" style="line-height:1.6">Catatan verifikator: ' + esc(d.catatanRevisi) + '</div>' : '') +
+      '</div></div>' + tombolPerbaikan(d) + '</div>';
+  }
+
+  h += '<div class="baris antara g10 mb16 bungkus">' +
     '<div class="label-kecil">Posisi Verifikasi</div>' +
     '<div class="tx-sm tx-2">Tahap <b>' + d.tahapSaatIni + '</b> dari <b>' + d.totalTahap + '</b></div></div>' +
     '<div class="linimasa">' + d.langkah.map(itemLinimasa).join('') + '</div>';
@@ -723,15 +843,91 @@ function itemLinimasa(l) {
   return '<div class="lm-item ' + kls + '"><div class="lm-bulat">' + ikon + '</div>' +
     '<div class="lm-judul">' + esc(l.namaTahap) + '</div>' +
     '<div class="lm-meta">' + esc(l.jabatan) +
-    (l.waktu ? ' · ' + tglJam(l.waktu) : '') +
-    (l.pelaku ? ' · ' + esc(l.pelaku) : '') + '</div>' +
+    (l.waktu ? ' · ' + tglJam(l.waktu) : '') + '</div>' +
     (l.catatan ? '<div class="lm-catatan">' + esc(l.catatan) + '</div>' : '') + '</div>';
+}
+
+/* ── Perbaikan berkas oleh pemohon (status Perlu Revisi) ────────── */
+function tombolPerbaikan(d) {
+  return '<button class="btn btn-utama btn-blok mt12" onclick="bukaPerbaikan(\'' +
+    esc(String(d.noRef).replace(/'/g, '')) + '\')"><i class="bi bi-upload"></i> Kirim Perbaikan Berkas</button>';
+}
+
+function bukaPerbaikan(noRef) {
+  Publik.perbaikan = [];
+  var t = (Publik.data && Publik.data.tampilan) || {};
+  bukaModal({
+    judul: 'Kirim Perbaikan Berkas',
+    sub: 'Nomor referensi ' + noRef,
+    isi:
+      '<div class="baris g10 mb16" style="align-items:flex-start;background:var(--info-bg);color:var(--info-fg);' +
+      'padding:12px 14px;border-radius:var(--r-lg)"><i class="bi bi-shield-lock" style="margin-top:2px"></i>' +
+      '<div class="sisa tx-sm" style="line-height:1.6">Demi keamanan, masukkan <b>surel yang sama</b> dengan ' +
+      'yang dipakai saat mengajukan. Berkas perbaikan tidak dibagikan publik.</div></div>' +
+      bidangTeks({ id: 'pbEmail', label: 'Surel Pemohon', tipe: 'email', wajib: true, otomatis: 'email' }) +
+      bidangArea({ id: 'pbCatatan', label: 'Keterangan Perbaikan', wajib: true, baris: 3,
+        placeholder: 'Contoh: Slip gaji terbaru bulan Agustus sudah saya lampirkan sesuai permintaan.' }) +
+      '<label class="jatuhkan" style="display:block">' +
+      '<i class="bi bi-cloud-arrow-up j-ikon"></i>' +
+      '<div class="j-judul">Pilih berkas perbaikan (boleh lebih dari satu)</div>' +
+      '<div class="j-desk">Format ' + esc((t.uploadFormat || ['pdf', 'jpg']).join('/').toUpperCase()) +
+      ' · maks. ' + (t.uploadMaxMb || 2) + ' MB per berkas</div>' +
+      '<input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" style="display:none" ' +
+      'onchange="pilihBerkasPerbaikan(this)"></label>' +
+      '<div class="tumpuk g8 mt12" id="pbDaftar"></div>',
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
+          '<button class="btn btn-utama" id="btnPerbaikan" onclick="kirimPerbaikan(\'' + esc(noRef) + '\')">' +
+          '<i class="bi bi-send"></i> Kirim Perbaikan</button>'
+  });
+}
+
+function pilihBerkasPerbaikan(input) {
+  var t = (Publik.data && Publik.data.tampilan) || {};
+  Array.prototype.forEach.call(input.files || [], function (file) {
+    if (Publik.perbaikan.length >= 6) { toast('Maksimal 6 berkas perbaikan.', 'peringatan'); return; }
+    var galat = validasiBerkas(file, t.uploadMaxMb || 2, t.uploadFormat);
+    if (galat) { toast(galat, 'galat'); return; }
+    bacaBerkasBase64(file).then(function (b64) {
+      Publik.perbaikan.push({ label: 'Berkas Perbaikan', nama: file.name, mime: file.type || 'application/octet-stream',
+                              base64: b64, ukuran: file.size });
+      gambarBerkasPerbaikan();
+    });
+  });
+  input.value = '';
+}
+
+function gambarBerkasPerbaikan() {
+  var w = el('pbDaftar');
+  if (!w) return;
+  w.innerHTML = Publik.perbaikan.map(function (b, i) {
+    return '<div class="unggah terisi"><div class="u-ikon"><i class="bi bi-paperclip"></i></div>' +
+      '<div class="u-teks"><div class="u-nama">' + esc(b.nama) + '</div>' +
+      '<div class="u-desk">' + formatUkuran(b.ukuran) + '</div></div>' +
+      '<button type="button" class="btn btn-hantu btn-ikon" onclick="Publik.perbaikan.splice(' + i +
+      ',1);gambarBerkasPerbaikan()"><i class="bi bi-trash"></i></button></div>';
+  }).join('');
+}
+
+function kirimPerbaikan(noRef) {
+  if (!validasiForm(null, [{ id: 'pbEmail', wajib: true, email: true }, { id: 'pbCatatan', wajib: true, min: 5 }])) return;
+  var btn = el('btnPerbaikan');
+  tombolSibuk(btn, true, 'Mengirim…');
+  kirim('perbaikiPengajuan', {
+    noRef: noRef, email: ambilNilai('pbEmail'), catatan: ambilNilai('pbCatatan'), berkas: Publik.perbaikan
+  }, APP.batasWaktuUnggah).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+    Publik.perbaikan = [];
+    tutupModal();
+    toast(r.message, 'sukses', 6000);
+    if (el('lacakNomor')) { el('lacakNomor').value = noRef; jalankanLacak(); }
+  });
 }
 
 /* ── Panduan ────────────────────────────────────────────────────── */
 function bukaPanduan() {
   var jenis = Publik.tabAktif === 'dosen' ? 'dosen' : 'mahasiswa';
-  var alur = (Publik.data.alur || {})[jenis] || [];
+  var alur = ((Publik.data || {}).alur || {})[jenis] || [];
   var daftar = jenis === 'dosen' ? BERKAS_DSN : BERKAS_MHS;
 
   bukaModal({
@@ -747,8 +943,8 @@ function bukaPanduan() {
       }).join('') + '</ul>' +
 
       '<div class="label-kecil mb8">2. Isi Formulir Daring</div>' +
-      '<p class="tx-md tx-2">Lengkapi seluruh isian bertanda <span class="wajib">*</span>. Gunakan tombol ' +
-      '<b>Simpan Draf</b> bila ingin melanjutkan nanti — isian tersimpan di peramban ini.</p>' +
+      '<p class="tx-md tx-2">Klik kartu layanan untuk membuka formulir. Lengkapi seluruh isian bertanda ' +
+      '<span class="wajib">*</span>. Isian tersimpan otomatis di peramban ini — aman bila jendela tertutup.</p>' +
 
       '<div class="label-kecil mb8 mt16">3. Proses Verifikasi Berjenjang</div>' +
       '<div class="linimasa mb16">' + alur.map(function (a, n) {
@@ -757,10 +953,9 @@ function bukaPanduan() {
           '<div class="lm-meta">' + esc(a.jabatan) + '</div></div>';
       }).join('') + '</div>' +
 
-      '<div class="label-kecil mb8">4. Pantau &amp; Unduh Hasil</div>' +
-      '<p class="tx-md tx-2 mb0">Simpan nomor referensi yang muncul setelah pengiriman. Notifikasi setiap ' +
-      'perubahan status dikirim otomatis ke surel dan WhatsApp Anda, dan Surat Keterangan dapat diunduh ' +
-      'langsung dari menu Lacak Status setelah terbit.</p>',
+      '<div class="label-kecil mb8">4. Pantau, Perbaiki &amp; Unduh Hasil</div>' +
+      '<p class="tx-md tx-2 mb0">Simpan nomor referensi. Bila verifikator meminta revisi, buka <b>Lacak Status</b> ' +
+      'lalu klik <b>Kirim Perbaikan Berkas</b>. Surat Keterangan dapat diunduh dari menu yang sama setelah terbit.</p>',
     kaki: '<button class="btn btn-utama" onclick="tutupModal()">Saya Mengerti</button>',
     tanpaFokus: true
   });

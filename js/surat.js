@@ -1,12 +1,62 @@
 /* ═══════════════════════════════════════════════════════════════════
-   e-SURAT — js/surat.js
-   Generator Surat Keluar, Surat Keputusan, Berita Acara & Notulensi.
+   e-SURAT — js/surat.js  (v4.2)
+   Generator Surat Keluar & Surat Keputusan berbasis TEMPLATE INSTANSI,
+   serta Berita Acara & Notulensi.
+
+   Alur v4.2:
+   Admin menghubungkan template Google Docs milik instansi → sistem
+   memindai placeholder {{...}} → kolom isian generator dibentuk OTOMATIS
+   sesuai placeholder template tiap jenis surat.
    ═══════════════════════════════════════════════════════════════════ */
 
 var Surat = { rekam: null, potongan: [], transkripLangsung: '' };
 
+/* ── Kamus placeholder (klien) ──────────────────────────────────── */
+var PH_OTOMATIS = ['NOMOR', 'TANGGAL', 'KOTA', 'INSTITUSI', 'SINGKATAN', 'YAYASAN', 'ALAMAT', 'TELEPON',
+                   'EMAIL', 'WEBSITE', 'AKREDITASI', 'TAHUN_AKADEMIK', 'PERIHAL_KAPITAL', 'JABATAN',
+                   'JABATAN_KAPITAL', 'NAMA_PEJABAT', 'NIDN', 'TTE', 'QR'];
+var PH_PEJABAT_KLIEN = ['NAMA_PEJABAT', 'JABATAN', 'JABATAN_KAPITAL', 'NIDN', 'TTE'];
+var PH_BAKU_KLIEN = {
+  PERIHAL:    { label: 'Perihal / Hal Surat', tipe: 'teks', wajib: true, kolom: 'perihal' },
+  TUJUAN:     { label: 'Ditujukan Kepada', tipe: 'area', wajib: false, kolom: 'tujuan' },
+  LAMPIRAN:   { label: 'Lampiran', tipe: 'teks', wajib: false, kolom: 'lampiran' },
+  ISI:        { label: 'Naskah / Isi Surat', tipe: 'naskah', wajib: true, kolom: 'isiNaskah' },
+  MENIMBANG:  { label: 'Menimbang', tipe: 'naskah', wajib: false, kolom: 'menimbang' },
+  MENGINGAT:  { label: 'Mengingat', tipe: 'naskah', wajib: false, kolom: 'mengingat' },
+  MENETAPKAN: { label: 'Menetapkan', tipe: 'naskah', wajib: true, kolom: 'menetapkan' }
+};
+var BIDANG_BAWAAN = {
+  suratKeluar: ['NOMOR', 'TANGGAL', 'PERIHAL', 'LAMPIRAN', 'TUJUAN', 'ISI', 'JABATAN', 'NAMA_PEJABAT', 'NIDN', 'TTE', 'QR'],
+  sk: ['NOMOR', 'TANGGAL', 'JABATAN_KAPITAL', 'PERIHAL_KAPITAL', 'MENIMBANG', 'MENGINGAT', 'MENETAPKAN',
+       'JABATAN', 'NAMA_PEJABAT', 'NIDN', 'TTE', 'QR']
+};
+
+function templateUntuk(kode) {
+  return ((Adm.boot.master || {}).templateDoc || []).filter(function (t) { return t.kodeJenis === kode; })[0] || null;
+}
+
+/** Definisi kolom sebuah template (hasil pindai) — atau bawaan bila belum ada template. */
+function bidangUntuk(kode, modul) {
+  var tpl = templateUntuk(kode);
+  var b = null;
+  if (tpl && tpl.bidang) { try { b = JSON.parse(tpl.bidang); } catch (e) { b = null; } }
+  if (b && b.length) return b;
+  var kunci = tpl && tpl.placeholder
+    ? (String(tpl.placeholder).match(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g) || []).map(function (s) {
+        return s.replace(/[{}\s]/g, '').toUpperCase();
+      })
+    : BIDANG_BAWAAN[modul] || BIDANG_BAWAAN.suratKeluar;
+  return kunci.map(function (k, i) {
+    if (PH_OTOMATIS.indexOf(k) >= 0) return { kunci: k, sumber: 'sistem', tipe: 'otomatis', label: k, urutan: i + 1 };
+    var baku = PH_BAKU_KLIEN[k];
+    if (baku) return { kunci: k, sumber: 'baku', kolom: baku.kolom, tipe: baku.tipe, label: baku.label, wajib: baku.wajib, urutan: i + 1 };
+    return { kunci: k, sumber: 'kustom', tipe: /TGL|TANGGAL/.test(k) ? 'tanggal' : 'teks',
+             label: labelDariKunci(k), wajib: false, urutan: i + 1 };
+  });
+}
+
 /* ══════════════════════════════════════════════════════════════════
-   SURAT KELUAR
+   SURAT KELUAR — daftar
    ══════════════════════════════════════════════════════════════════ */
 function renderSuratKeluar(w) {
   var data = (Adm.boot.data.suratKeluar || []).slice().reverse();
@@ -18,30 +68,31 @@ function renderSuratKeluar(w) {
     });
   }
 
-  var terbit = (Adm.boot.data.suratKeluar || []).filter(function (r) { return r.status === 'TERBIT'; }).length;
-  var draf = (Adm.boot.data.suratKeluar || []).filter(function (r) { return r.status === 'DRAF'; }).length;
+  var semua = Adm.boot.data.suratKeluar || [];
+  var terbit = semua.filter(function (r) { return r.status === 'TERBIT'; }).length;
+  var draf = semua.filter(function (r) { return r.status === 'DRAF'; }).length;
 
   var h = kepalaHalaman({
     remah: ['Arsip & Persuratan', 'Surat Keluar', 'Generator Persuratan Resmi'],
     judul: 'Generator & Registrasi Surat Keluar',
-    sub: 'Terbitkan surat dinas dari template Google Docs dengan penomoran terkunci, tanda tangan elektronik, dan QR validasi.',
+    sub: 'Terbitkan surat dinas dari template Google Docs instansi — kolom isian menyesuaikan placeholder template tiap jenis surat.',
     aksi: (Sesi.boleh('tulis')
       ? '<button class="btn btn-utama" onclick="bukaGeneratorSurat()">' +
         '<i class="bi bi-file-earmark-plus"></i> Buat Surat Baru</button>' : '') +
-      '<button class="btn btn-garis" onclick="bukaPanelTemplate()">' +
-      '<i class="bi bi-file-earmark-richtext"></i> Panel Template Docs</button>'
+      '<button class="btn btn-garis" onclick="bukaPanelTemplate(\'suratKeluar\')">' +
+      '<i class="bi bi-file-earmark-richtext"></i> Template Docs</button>'
   });
 
   h += '<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">' +
     kartuKpi('Surat Terbit', terbit, 'Dokumen', 'bi-patch-check', 'hijau', '') +
     kartuKpi('Tersimpan sebagai Draf', draf, 'Konsep', 'bi-file-earmark', 'abu',
              '<span class="tx-3">Draf belum memakai nomor surat</span>') +
-    kartuKpi('Total Register', (Adm.boot.data.suratKeluar || []).length, 'Baris', 'bi-journals', 'biru', '') +
+    kartuKpi('Total Register', semua.length, 'Baris', 'bi-journals', 'biru', '') +
     '</div>';
 
   h += '<div class="kartu kartu-rapat">' +
     '<div class="tabel-alat"><div class="cari"><i class="bi bi-search"></i>' +
-    '<input type="search" value="' + esc(cari) + '" placeholder="Cari nomor surat, perihal, atau tujuan…" ' +
+    '<input type="search" id="cari_suratKeluar" value="' + esc(cari) + '" placeholder="Cari nomor surat, perihal, atau tujuan…" ' +
     'oninput="cariModul(\'suratKeluar\',this.value)"></div><div class="sisa"></div>' +
     '<button class="btn btn-garis btn-sm" onclick="eksporModul(\'suratKeluar\')">' +
     '<i class="bi bi-filetype-csv"></i> Ekspor</button></div>' +
@@ -54,186 +105,334 @@ function renderSuratKeluar(w) {
       ikonKosong: 'bi-envelope-paper',
       aksiKosong: Sesi.boleh('tulis') ? '<button class="btn btn-utama" onclick="bukaGeneratorSurat()">' +
         '<i class="bi bi-file-earmark-plus"></i> Buat Surat Baru</button>' : '',
-      aksi: function (r) {
-        var a = '<button class="btn btn-hantu btn-ikon" title="Detail" onclick="lihatDetail(\'suratKeluar\',\'' +
-                r.id + '\')"><i class="bi bi-eye"></i></button>';
-        if (r.pdfUrl) a += tombolPratinjau(r.pdfUrl, r.nomorSurat, 'bi-file-earmark-pdf', 'Pratinjau PDF');
-        if (Sesi.boleh('tulis') && r.status === 'DRAF') {
-          a += '<button class="btn btn-hantu btn-ikon" title="Lanjutkan draf" onclick="bukaGeneratorSurat(\'' +
-               r.id + '\')"><i class="bi bi-pencil"></i></button>';
-        }
-        if (Sesi.boleh('tulis')) {
-          a += '<button class="btn btn-hantu btn-ikon" title="Unggah scan asli" onclick="bukaUnggahScan(\'suratKeluar\',\'' +
-               r.id + '\')"><i class="bi bi-upload"></i></button>';
-        }
-        if (Sesi.boleh('tulis') && r.status === 'TERBIT') {
-          a += '<button class="btn btn-hantu btn-ikon" title="Tarik kembali" onclick="tarikDokumen(\'suratKeluar\',\'' +
-               r.id + '\')"><i class="bi bi-arrow-counterclockwise"></i></button>';
-        }
-        if (Sesi.boleh('hapus')) {
-          a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'suratKeluar\',\'' +
-               r.id + '\')"><i class="bi bi-trash"></i></button>';
-        }
-        return a;
-      }
+      aksi: function (r) { return aksiDokumen('suratKeluar', r, r.nomorSurat, 'bukaGeneratorSurat'); }
     }) + '</div>';
 
   w.innerHTML = h;
 }
 
-/* ── Formulir generator ─────────────────────────────────────────── */
-function bukaGeneratorSurat(id) {
-  var rec = id ? (Adm.boot.data.suratKeluar || []).filter(function (r) { return String(r.id) === String(id); })[0] : null;
-  rec = rec || { tteAktif: 'true' };
+function aksiDokumen(modul, r, nomor, fnEdit) {
+  var a = '<button class="btn btn-hantu btn-ikon" title="Detail" onclick="lihatDetail(\'' + modul + '\',\'' +
+          r.id + '\')"><i class="bi bi-eye"></i></button>';
+  if (r.pdfUrl) a += tombolPratinjau(r.pdfUrl, nomor, 'bi-file-earmark-pdf', 'Pratinjau PDF');
+  if (Sesi.boleh('tulis') && r.status === 'DRAF') {
+    a += '<button class="btn btn-hantu btn-ikon" title="Lanjutkan draf" onclick="' + fnEdit + '(\'' +
+         r.id + '\')"><i class="bi bi-pencil"></i></button>';
+  }
+  if (Sesi.boleh('tulis')) {
+    a += '<button class="btn btn-hantu btn-ikon" title="Unggah scan asli" onclick="bukaUnggahScan(\'' + modul + '\',\'' +
+         r.id + '\')"><i class="bi bi-upload"></i></button>';
+  }
+  if (Sesi.boleh('tulis') && r.status === 'TERBIT') {
+    a += '<button class="btn btn-hantu btn-ikon" title="Tarik kembali" onclick="tarikDokumen(\'' + modul + '\',\'' +
+         r.id + '\')"><i class="bi bi-arrow-counterclockwise"></i></button>';
+  }
+  if (Sesi.boleh('hapus')) {
+    a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'' + modul + '\',\'' +
+         r.id + '\')"><i class="bi bi-trash"></i></button>';
+  }
+  return a;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   GENERATOR DINAMIS (Surat Keluar & SK)
+   ══════════════════════════════════════════════════════════════════ */
+var Gen = { modul: null, id: null, rec: {}, kode: null, bidang: [], cache: {} };
+
+function bukaGeneratorSurat(id) { bukaGenerator('suratKeluar', id); }
+function bukaGeneratorSK(id) { bukaGenerator('sk', id); }
+
+function bukaGenerator(modul, id) {
+  var sk = modul === 'sk';
+  var rec = id ? (Adm.boot.data[modul] || []).filter(function (r) { return String(r.id) === String(id); })[0] : null;
+  Gen = { modul: modul, id: id || '', rec: rec || { tteAktif: 'true' }, kode: null, bidang: [], cache: {} };
 
   var jenis = (Adm.boot.master.jenisSurat || []).filter(function (j) {
-    return j.modul === 'suratKeluar' && String(j.aktif) === 'true';
+    return j.modul === modul && String(j.aktif) === 'true';
   });
-  var pejabat = (Adm.boot.master.pejabat || []).filter(function (p) { return String(p.aktif) === 'true'; });
 
   var isi =
     '<div class="pratinjau-nomor mb16">' +
-    '<div class="pn-label"><span>Nomor Registrasi Surat</span>' +
+    '<div class="pn-label"><span>' + (sk ? 'Nomor Surat Keputusan' : 'Nomor Registrasi Surat') + '</span>' +
     '<span class="lencana emas"><i class="bi bi-lightning-charge"></i> Otomatis</span></div>' +
-    '<div class="pn-nilai" id="pnNomor">— pilih jenis surat —</div>' +
+    '<div class="pn-nilai" id="pnNomor">— pilih jenis ' + (sk ? 'SK' : 'surat') + ' —</div>' +
     '<div class="pn-ket" id="pnKet">Nomor baru dikunci hanya saat dokumen diterbitkan</div></div>' +
 
     '<div class="grid-2">' +
-    bidangPilih({ id: 'skJenis', label: 'Jenis Surat Kedinasan', wajib: true, nilai: rec.kodeJenis,
-      opsi: jenis.map(function (j) { return { v: j.kode, t: j.nama + ' (' + j.kode + ')' }; }) }) +
-    bidangTeks({ id: 'skTanggal', label: 'Tanggal Surat Diterbitkan', tipe: 'date',
-      nilai: tglInput(rec.tanggalSurat) }) + '</div>' +
-
-    bidangTeks({ id: 'skPerihal', label: 'Perihal / Hal Surat', wajib: true, maks: 120,
-      nilai: rec.perihal, placeholder: 'Penugasan Dosen Pembimbing Lapangan KKN Tematik' }) +
-
-    '<div class="grid-2">' +
-    bidangTeks({ id: 'skTujuan', label: 'Ditujukan Kepada', nilai: rec.tujuan,
-      placeholder: 'Yth. Kepala Bagian Akademik' }) +
-    bidangTeks({ id: 'skLampiran', label: 'Keterangan Lampiran', nilai: rec.lampiran || '-',
-      placeholder: '1 (satu) berkas' }) + '</div>' +
-
-    '<div class="bidang"><label>Naskah Surat <span class="wajib">*</span></label>' +
-    editorNaskah('skNaskah', rec.isiNaskah || '',
-      'Ketik isi surat di sini. Gunakan tombol di atas untuk cetak tebal, daftar bernomor, atau tabel.') +
-    '<div class="bantu">Naskah dikonversi otomatis menjadi paragraf, daftar, dan tabel pada dokumen Google Docs.</div>' +
-    '</div>' +
-
-    bidangPilih({ id: 'skPejabat', label: 'Otoritas Pejabat Penandatangan', wajib: true, nilai: rec.pejabatId,
-      opsi: pejabat.map(function (p) {
-        return { v: p.id, t: p.nama + (p.gelar ? ', ' + p.gelar : '') + ' — ' + p.jabatan };
+    bidangPilih({ id: 'gnJenis', label: sk ? 'Jenis Surat Keputusan' : 'Jenis Surat Kedinasan', wajib: true,
+      nilai: Gen.rec.kodeJenis,
+      opsi: jenis.map(function (j) {
+        var ada = templateUntuk(j.kode);
+        return { v: j.kode, t: j.nama + ' (' + j.kode + ')' + (ada ? '' : ' — belum ada template') };
       }) }) +
+    bidangTeks({ id: 'gnTanggal', label: sk ? 'Tanggal Penetapan' : 'Tanggal Surat Diterbitkan', tipe: 'date',
+      nilai: tglInput(sk ? Gen.rec.tanggalSK : Gen.rec.tanggalSurat) }) + '</div>' +
 
-    '<div class="kartu kartu-rapat" style="background:var(--navy-dark);border:none;color:#fff">' +
-    '<div class="baris antara g12"><div class="sisa">' +
-    '<div class="tebal tx-md" style="color:#fff">Gunakan Tanda Tangan Elektronik (TTE) &amp; Segel Digital</div>' +
-    '<div class="tx-sm mt4" style="color:rgba(255,255,255,.6);line-height:1.6">Sistem menyematkan spesimen paraf ' +
-    'resmi dari Master Pejabat, disertai QR verifikasi kriptografis pada lembar PDF.</div></div>' +
-    '<label class="saklar"><input type="checkbox" id="skTte"' +
-    (String(rec.tteAktif) !== 'false' ? ' checked' : '') + '><span class="track"></span></label>' +
-    '</div></div>' +
-
-    '<div id="skInfoTemplate" class="mt16"></div>';
+    '<div id="gnInfoTpl"></div>' +
+    '<div id="gnBidang"><div class="kosong" style="padding:28px"><i class="bi bi-ui-checks"></i>' +
+    '<div class="k-desk">Pilih jenis ' + (sk ? 'SK' : 'surat') + ' — kolom isian akan muncul sesuai template.</div></div></div>';
 
   bukaModal({
     lebar: true,
-    judul: id ? 'Lanjutkan Draf Surat Keluar' : 'Generator Surat Keluar',
-    sub: 'Nomor surat baru dialokasikan hanya saat tombol "Terbitkan Dokumen Resmi" ditekan.',
+    judul: (id ? 'Lanjutkan Draf ' : 'Generator ') + (sk ? 'Surat Keputusan' : 'Surat Keluar'),
+    sub: 'Kolom isian mengikuti placeholder pada template Google Docs instansi. Nomor dialokasikan saat diterbitkan.',
     isi: isi,
+    kunci: true,
     kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
-          '<button class="btn btn-hantu" id="btnDrafSurat" onclick="simpanDrafSurat(\'' + (id || '') + '\')">' +
+          '<button class="btn btn-hantu" id="btnDrafGen" onclick="simpanDrafGen()">' +
           '<i class="bi bi-save"></i> Simpan Draf</button>' +
-          '<button class="btn btn-navy" id="btnPratinjauSurat" onclick="pratinjauSurat()">' +
+          '<button class="btn btn-navy" id="btnPratinjauGen" onclick="pratinjauGen()">' +
           '<i class="bi bi-eye"></i> Pratinjau PDF</button>' +
-          '<button class="btn btn-utama" id="btnTerbitSurat" onclick="terbitkanSurat(\'' + (id || '') + '\')">' +
+          '<button class="btn btn-utama" id="btnTerbitGen" onclick="terbitkanGen()">' +
           '<i class="bi bi-file-earmark-check"></i> Terbitkan Dokumen Resmi</button>',
     setelah: function () {
-      var s = el('skJenis');
-      s.addEventListener('change', muatPratinjauNomor);
-      if (s.value) muatPratinjauNomor();
+      var s = el('gnJenis');
+      s.addEventListener('change', function () { gantiJenisGen(); });
+      if (!s.value && jenis.length === 1) s.value = jenis[0].kode;
+      if (s.value) gantiJenisGen();
     }
   });
 }
 
-function muatPratinjauNomor() {
-  var kode = ambilNilai('skJenis') || ambilNilai('sk2Jenis');
-  if (!kode) return;
-  var target = el('pnNomor') ? 'pn' : 'pn2';
-  el(target + 'Nomor').textContent = 'memuat…';
+function gantiJenisGen() {
+  simpanCacheGen();
+  Gen.kode = ambilNilai('gnJenis');
+  if (!Gen.kode) return;
+  tampilkanNomorGen();
+  renderBidangGen();
+}
 
+/** Nomor berikutnya dihitung LOKAL (instan), lalu dikonfirmasi server di latar. */
+function tampilkanNomorGen() {
+  var kode = Gen.kode;
+  var j = (Adm.boot.master.jenisSurat || []).filter(function (x) { return x.kode === kode; })[0];
+  if (j) {
+    var thn = new Date().getFullYear();
+    var jalan = Number(j.tahunBerjalan) === thn ? (Number(j.nomorBerjalan) || 0) : 0;
+    var berikut = Math.max(jalan + 1, Number(j.nomorAwal) || 1);
+    el('pnNomor').textContent = susunNomorLokal(j.formatNomor, kode, berikut);
+    el('pnKet').textContent = 'Perkiraan · format: ' + (j.formatNomor || '-');
+  }
   ambil('previewNomor', { kodeJenis: kode }).then(function (r) {
-    if (!r.success) { el(target + 'Nomor').textContent = '— ' + r.message; return; }
-    el(target + 'Nomor').textContent = r.data.nomor;
-    el(target + 'Ket').textContent = 'Terakhir digunakan: ' + r.data.terakhir + ' · format: ' + r.data.format;
-
-    var info = el('skInfoTemplate');
-    if (info) {
-      var tpl = (Adm.boot.master.templateDoc || []).filter(function (t) { return t.kodeJenis === kode; })[0];
-      info.innerHTML = tpl
-        ? '<div class="baris g10 bungkus" style="align-items:flex-start;background:var(--info-bg);' +
-          'color:var(--info-fg);padding:12px 14px;border-radius:var(--r-lg)">' +
-          '<i class="bi bi-file-earmark-richtext" style="margin-top:2px"></i>' +
-          '<div class="sisa tx-sm" style="line-height:1.6"><b>' + esc(tpl.namaTemplate) + '</b><br>' +
-          'Placeholder tersedia: <span class="mono" style="font-size:10.5px">' +
-          esc(potong(tpl.placeholder, 190)) + '</span></div>' +
-          '<a class="btn btn-garis btn-sm" href="' + esc(tpl.docUrl) + '" target="_blank" rel="noopener">' +
-          '<i class="bi bi-pencil-square"></i> Edit di Google Docs</a></div>'
-        : '<div class="baris g10" style="background:var(--warn-bg);color:var(--warn-fg);padding:12px 14px;' +
-          'border-radius:var(--r-lg)"><i class="bi bi-exclamation-triangle"></i>' +
-          '<div class="sisa tx-sm">Template Google Docs untuk jenis ini belum tersedia. Buka ' +
-          '<b>Panel Template Docs</b> lalu klik "Buat Template yang Belum Ada".</div></div>';
-    }
+    if (!r.success || Gen.kode !== kode || !el('pnNomor')) return;
+    el('pnNomor').textContent = r.data.nomor;
+    el('pnKet').textContent = 'Terakhir digunakan: ' + r.data.terakhir + ' · format: ' + r.data.format;
   });
 }
 
-function kumpulkanSurat(id) {
-  return {
-    id: id || '',
-    kodeJenis: ambilNilai('skJenis'),
-    tanggalSurat: ambilNilai('skTanggal'),
-    perihal: ambilNilai('skPerihal'),
-    tujuan: ambilNilai('skTujuan'),
-    lampiran: ambilNilai('skLampiran'),
-    isiNaskah: ambilEditor('skNaskah'),
-    pejabatId: ambilNilai('skPejabat'),
-    tteAktif: el('skTte').checked ? 'true' : 'false'
-  };
+function susunNomorLokal(format, kode, urut) {
+  var d = new Date();
+  var r = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
+  var n = String(urut); while (n.length < 3) n = '0' + n;
+  return String(format || '{NOMOR}/{KODE}/{INSTITUSI}/{ROMAWI}/{TAHUN}')
+    .replace(/\{NOMOR\}/g, n).replace(/\{KODE\}/g, kode)
+    .replace(/\{INSTITUSI\}/g, (Adm.boot.config || {}).INSTITUSI_KODE || 'INST')
+    .replace(/\{ROMAWI\}/g, r[d.getMonth()]).replace(/\{TAHUN\}/g, d.getFullYear())
+    .replace(/\{BULAN\}/g, pad2(d.getMonth() + 1)).replace(/\{TANGGAL\}/g, pad2(d.getDate()))
+    .replace(/\{PRODI\}/g, '');
 }
 
-function validasiSurat() {
-  if (!validasiForm(null, [
-    { id: 'skJenis', wajib: true },
-    { id: 'skPerihal', wajib: true },
-    { id: 'skPejabat', wajib: true }
-  ])) return false;
-  if (editorKosong('skNaskah')) {
-    toast('Naskah surat belum diisi.', 'peringatan');
-    el('skNaskah').focus();
+function isianRecGen() {
+  try { return typeof Gen.rec.dataIsian === 'string' ? JSON.parse(Gen.rec.dataIsian || '{}') : (Gen.rec.dataIsian || {}); }
+  catch (e) { return {}; }
+}
+
+function nilaiAwalGen(b) {
+  if (Gen.cache[b.kunci] !== undefined) return Gen.cache[b.kunci];
+  if (b.sumber === 'baku') {
+    if (b.kolom === 'perihal') return Gen.modul === 'sk' ? (Gen.rec.tentang || '') : (Gen.rec.perihal || '');
+    if (b.kolom === 'lampiran' && !Gen.rec.id) return '-';
+    return Gen.rec[b.kolom] || '';
+  }
+  return isianRecGen()[b.kunci] || '';
+}
+
+/** Kolom isian tampil sesuai placeholder template yang dipilih. */
+function renderBidangGen() {
+  var sk = Gen.modul === 'sk';
+  var tpl = templateUntuk(Gen.kode);
+  var bidang = bidangUntuk(Gen.kode, Gen.modul).slice();
+
+  var adaPerihal = bidang.some(function (b) { return b.kunci === 'PERIHAL'; });
+  if (!adaPerihal) {
+    bidang.unshift({ kunci: 'PERIHAL', sumber: 'baku', kolom: 'perihal', tipe: 'teks', wajib: true, urutan: 0,
+                     virtual: true, label: sk ? 'Tentang (Judul Keputusan)' : 'Perihal (untuk register surat)' });
+  }
+  Gen.bidang = bidang;
+
+  /* Info template */
+  var info = '';
+  if (tpl) {
+    var nSistem = bidang.filter(function (b) { return b.sumber === 'sistem'; }).length;
+    info = '<div class="info-tpl mb16"><i class="bi bi-file-earmark-richtext"></i><div class="sisa">' +
+      '<div class="tebal">' + esc(tpl.namaTemplate || 'Template') + '</div>' +
+      '<div class="tx-sm">' + (bidang.length - nSistem) + ' kolom isian · ' + nSistem +
+      ' diisi otomatis (nomor, tanggal, identitas, pejabat, TTE, QR)</div></div>' +
+      '<div class="baris g6 bungkus">' +
+      '<a class="btn btn-garis btn-sm" href="' + esc(tpl.docUrl) + '" target="_blank" rel="noopener">' +
+      '<i class="bi bi-box-arrow-up-right"></i> Buka Template</a>' +
+      (Sesi.boleh('master') ? '<button class="btn btn-garis btn-sm" onclick="bukaAturKolom(\'' + esc(Gen.kode) + '\')">' +
+        '<i class="bi bi-sliders"></i> Atur Kolom</button>' : '') + '</div></div>';
+  } else {
+    info = '<div class="info-tpl peringatan mb16"><i class="bi bi-exclamation-triangle"></i><div class="sisa">' +
+      '<div class="tebal">Template Google Docs untuk jenis ini belum dihubungkan</div>' +
+      '<div class="tx-sm">Anda tetap dapat menyimpan draf. Penerbitan memerlukan template instansi.</div></div>' +
+      (Sesi.boleh('master') ? '<button class="btn btn-utama btn-sm" onclick="hubungkanDoc(\'' + esc(Gen.kode) + '\')">' +
+        '<i class="bi bi-link-45deg"></i> Hubungkan Template</button>' : '') + '</div>';
+  }
+  el('gnInfoTpl').innerHTML = info;
+
+  /* Kolom isian */
+  var h = '';
+  bidang.filter(function (b) { return b.sumber !== 'sistem'; })
+    .sort(function (a, b) { return (Number(a.urutan) || 0) - (Number(b.urutan) || 0); })
+    .forEach(function (b) {
+      var label = b.label;
+      if (sk && b.kunci === 'PERIHAL' && !b.virtual && /Perihal/.test(label)) label = 'Tentang (Judul Keputusan)';
+      var ket = (b.petunjuk ? esc(b.petunjuk) + ' · ' : '') +
+                '<span class="mono tx-xs">{{' + esc(b.kunci) + '}}</span>';
+      var v = nilaiAwalGen(b);
+      if (b.tipe === 'naskah') {
+        h += '<div class="bidang" data-kunci="' + esc(b.kunci) + '"><label>' + esc(label) +
+          (b.wajib ? ' <span class="wajib">*</span>' : '') + '</label>' +
+          editorNaskah('gnE_' + b.kunci, v, 'Ketik ' + label.toLowerCase() + ' di sini…',
+                       b.kunci === 'ISI' ? 220 : 140) +
+          '<div class="bantu">' + ket + '</div><div class="pesan-galat">Isian ini wajib diisi.</div></div>';
+      } else if (b.tipe === 'area') {
+        h += bidangArea({ id: 'gn_' + b.kunci, label: label, wajib: b.wajib, baris: 3, nilai: v, bantu: ket });
+      } else if (b.tipe === 'tanggal') {
+        h += bidangTeks({ id: 'gn_' + b.kunci, label: label, wajib: b.wajib, tipe: 'date', nilai: v, bantu: ket });
+      } else if (b.tipe === 'angka') {
+        h += bidangTeks({ id: 'gn_' + b.kunci, label: label, wajib: b.wajib, tipe: 'number', nilai: v, bantu: ket });
+      } else {
+        h += bidangTeks({ id: 'gn_' + b.kunci, label: label, wajib: b.wajib, nilai: v, bantu: ket, maks: 300 });
+      }
+    });
+
+  /* Pejabat & TTE hanya bila template memuat placeholder pejabat */
+  var butuhPejabat = !tpl || bidang.some(function (b) { return PH_PEJABAT_KLIEN.indexOf(b.kunci) >= 0; });
+  var adaTte = !tpl || bidang.some(function (b) { return b.kunci === 'TTE'; });
+  if (butuhPejabat) {
+    var pejabat = (Adm.boot.master.pejabat || []).filter(function (p) { return String(p.aktif) === 'true'; });
+    var pj = Gen.cache.__pejabat !== undefined ? Gen.cache.__pejabat : Gen.rec.pejabatId;
+    h += bidangPilih({ id: 'gnPejabat', label: sk ? 'Pejabat Penetap' : 'Pejabat Penandatangan', wajib: true, nilai: pj,
+      opsi: pejabat.map(function (p) {
+        return { v: p.id, t: p.nama + (p.gelar ? ', ' + p.gelar : '') + ' — ' + p.jabatan };
+      }) });
+  }
+  if (adaTte) {
+    var tte = Gen.cache.__tte !== undefined ? Gen.cache.__tte : String(Gen.rec.tteAktif) !== 'false';
+    h += '<div class="kartu kartu-rapat" style="background:var(--navy-dark);border:none;color:#fff">' +
+      '<div class="baris antara g12"><div class="sisa">' +
+      '<div class="tebal tx-md" style="color:#fff">Tanda Tangan Elektronik (TTE) &amp; QR Validasi</div>' +
+      '<div class="tx-sm mt4" style="color:rgba(255,255,255,.6);line-height:1.6">Spesimen dari Master Pejabat ' +
+      'disematkan pada {{TTE}}. Nonaktifkan untuk menyisakan ruang tanda tangan basah.</div></div>' +
+      '<label class="saklar"><input type="checkbox" id="gnTte"' + (tte ? ' checked' : '') +
+      '><span class="track"></span></label></div></div>';
+  }
+
+  var otomatis = bidang.filter(function (b) { return b.sumber === 'sistem'; });
+  if (otomatis.length) {
+    h += '<div class="mt16"><div class="label-kecil mb8">Diisi otomatis oleh sistem</div><div class="baris g6 bungkus">' +
+      otomatis.map(function (b) { return '<span class="chip-nomor" title="' + esc(b.label) + '">{{' + esc(b.kunci) + '}}</span>'; }).join('') +
+      '</div></div>';
+  }
+
+  el('gnBidang').innerHTML = h;
+}
+
+/** Simpan isian sementara agar tidak hilang saat berganti jenis surat. */
+function simpanCacheGen() {
+  (Gen.bidang || []).forEach(function (b) {
+    if (b.sumber === 'sistem') return;
+    var v = nilaiFieldGen(b);
+    if (v !== null) Gen.cache[b.kunci] = v;
+  });
+  if (el('gnPejabat')) Gen.cache.__pejabat = ambilNilai('gnPejabat');
+  if (el('gnTte')) Gen.cache.__tte = el('gnTte').checked;
+}
+
+function nilaiFieldGen(b) {
+  if (b.tipe === 'naskah') return el('gnE_' + b.kunci) ? ambilEditor('gnE_' + b.kunci) : null;
+  return el('gn_' + b.kunci) ? ambilNilai('gn_' + b.kunci) : null;
+}
+
+function kumpulkanGen() {
+  var sk = Gen.modul === 'sk';
+  var rec = { id: Gen.id || '', kodeJenis: ambilNilai('gnJenis') };
+  if (sk) rec.tanggalSK = ambilNilai('gnTanggal'); else rec.tanggalSurat = ambilNilai('gnTanggal');
+  rec.pejabatId = el('gnPejabat') ? ambilNilai('gnPejabat') : (Gen.rec.pejabatId || '');
+  rec.tteAktif = el('gnTte') ? (el('gnTte').checked ? 'true' : 'false') : 'false';
+
+  var isian = {};
+  Gen.bidang.forEach(function (b) {
+    if (b.sumber === 'sistem') return;
+    var v = nilaiFieldGen(b);
+    if (v === null) return;
+    if (b.sumber === 'baku') {
+      if (b.kolom === 'perihal') { if (sk) rec.tentang = v; else rec.perihal = v; }
+      else rec[b.kolom] = v;
+    } else {
+      isian[b.kunci] = v;
+    }
+  });
+  if (sk) rec.perihal = rec.tentang;
+  rec.dataIsian = JSON.stringify(isian);
+  return rec;
+}
+
+function validasiGen(penuh) {
+  if (!ambilNilai('gnJenis')) { tandaiGalat(el('gnJenis'), 'Jenis wajib dipilih.'); toast('Pilih jenis surat terlebih dahulu.', 'peringatan'); return false; }
+  bersihkanGalat();
+  var kurang = [], pertama = null;
+  Gen.bidang.forEach(function (b) {
+    if (b.sumber === 'sistem' || !b.wajib) return;
+    if (!penuh && b.kunci !== 'PERIHAL') return;
+    var kosong = b.tipe === 'naskah' ? editorKosong('gnE_' + b.kunci) : !ambilNilai('gn_' + b.kunci);
+    if (kosong) {
+      kurang.push(b.label);
+      var n = b.tipe === 'naskah' ? $('[data-kunci="' + b.kunci + '"]') : el('gn_' + b.kunci);
+      if (b.tipe === 'naskah' && n) n.classList.add('galat'); else tandaiGalat(n);
+      if (!pertama) pertama = b.tipe === 'naskah' ? el('gnE_' + b.kunci) : n;
+    }
+  });
+  if (penuh && el('gnPejabat') && !ambilNilai('gnPejabat')) {
+    kurang.push('Pejabat Penandatangan');
+    tandaiGalat(el('gnPejabat'));
+    if (!pertama) pertama = el('gnPejabat');
+  }
+  if (kurang.length) {
+    if (pertama) { pertama.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(function () { pertama.focus(); }, 300); }
+    toast('Isian wajib belum lengkap: ' + kurang.join(', ') + '.', 'peringatan');
     return false;
   }
   return true;
 }
 
-function simpanDrafSurat(id) {
-  if (!validasiForm(null, [{ id: 'skJenis', wajib: true }, { id: 'skPerihal', wajib: true }])) return;
-  var btn = el('btnDrafSurat');
-  var rec = kumpulkanSurat(id);
+function simpanDrafGen() {
+  if (!validasiGen(false)) return;
+  var btn = el('btnDrafGen');
+  var rec = kumpulkanGen();
   rec.status = 'DRAF';
+  var modul = Gen.modul;
 
   tombolSibuk(btn, true, 'Menyimpan…');
-  kirim('simpanRecord', { modul: 'suratKeluar', data: rec }).then(function (r) {
+  kirim('simpanRecord', { modul: modul, data: rec }).then(function (r) {
     tombolSibuk(btn, false);
     if (!r.success) { toast(r.message, 'galat'); return; }
     tutupModal();
     toast('Draf tersimpan tanpa memakai nomor surat.', 'sukses');
-    segarkanModul('suratKeluar');
+    upsertLokal(modul, r.data);
+    if (Adm.modulAktif === modul) renderModul(modul);
+    segarkanModul(modul, true);
   });
 }
 
-function pratinjauSurat() {
-  if (!validasiSurat()) return;
-  var btn = el('btnPratinjauSurat');
-  var rec = kumpulkanSurat('');
+function pratinjauGen() {
+  if (!validasiGen(true)) return;
+  if (!templateUntuk(ambilNilai('gnJenis'))) { toast('Hubungkan template Google Docs untuk jenis ini terlebih dahulu.', 'peringatan'); return; }
+  var btn = el('btnPratinjauGen');
+  var rec = kumpulkanGen();
 
   tombolSibuk(btn, true, 'Membangun PDF…');
   kirim('pratinjauDokumen', {
@@ -246,47 +445,54 @@ function pratinjauSurat() {
   });
 }
 
-function terbitkanSurat(id) {
-  if (!validasiSurat()) return;
-  var rec = kumpulkanSurat(id);
+function terbitkanGen() {
+  if (!validasiGen(true)) return;
+  if (!templateUntuk(ambilNilai('gnJenis'))) { toast('Hubungkan template Google Docs untuk jenis ini terlebih dahulu.', 'peringatan'); return; }
+  var rec = kumpulkanGen();
+  var modul = Gen.modul;
+  var sk = modul === 'sk';
 
   konfirmasi({
-    judul: 'Terbitkan Dokumen Resmi',
-    pesan: 'Nomor surat akan <b>dikunci permanen</b> pada register dan tidak dapat dipakai ulang. ' +
-           'Dokumen PDF dibuat dari template Google Docs lalu diarsipkan ke Drive.',
+    judul: sk ? 'Terbitkan Surat Keputusan' : 'Terbitkan Dokumen Resmi',
+    pesan: 'Nomor ' + (sk ? 'SK' : 'surat') + ' akan <b>dikunci permanen</b> pada register. ' +
+           'Dokumen PDF dibuat dari template Google Docs lalu diarsipkan ke Drive. ' +
+           'Bila pembuatan gagal, nomor dikembalikan otomatis.',
     ya: 'Ya, Terbitkan Sekarang'
   }).then(function (ya) {
     if (!ya) return;
-    var btn = el('btnTerbitSurat');
+    var btn = el('btnTerbitGen');
     tombolSibuk(btn, true, 'Menerbitkan…');
 
-    kirim('terbitkanSuratKeluar', {
-      record: rec, qrDataUrl: buatQrDataUrl(rec.perihal)
+    kirim(sk ? 'terbitkanSK' : 'terbitkanSuratKeluar', {
+      record: rec, qrDataUrl: buatQrDataUrl((sk ? rec.tentang : rec.perihal) || 'e-SURAT')
     }, APP.batasWaktuUnggah).then(function (r) {
       tombolSibuk(btn, false);
-      if (!r.success) { toast(r.message, 'galat'); return; }
+      if (!r.success) { toast(r.message, 'galat', 9000); return; }
       tutupModal();
       toast(r.message, 'sukses');
-      segarkanModul('suratKeluar').then(function () {
-        if (r.data.pdfUrl) {
-          bukaModal({
-            sempit: true, judul: 'Dokumen Berhasil Diterbitkan',
-            isi: '<div class="tgh"><div class="kpi-ikon hijau" style="width:52px;height:52px;font-size:24px;' +
-              'margin:0 auto 14px"><i class="bi bi-patch-check-fill"></i></div>' +
-              '<div class="mb12">' + chipNomor(r.data.nomorSurat) + '</div>' +
-              '<div class="tx-md tx-2">' + esc(r.data.perihal) + '</div></div>',
-            kaki: '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>' +
-                  '<button class="btn btn-utama" onclick="pratinjauBerkas(\'' + esc(r.data.pdfUrl) +
-                  '\',\'' + esc(String(r.data.nomorSurat).replace(/'/g, '')) + '\')">' +
-                  '<i class="bi bi-file-earmark-pdf"></i> Lihat PDF Resmi</button>',
-            tanpaFokus: true
-          });
-        }
-      });
+      upsertLokal(modul, r.data);
+      if (Adm.modulAktif === modul) renderModul(modul);
+      segarkanModul(modul, true);
+      var nomor = r.data.nomorSK || r.data.nomorSurat;
+      if (r.data.pdfUrl) {
+        bukaModal({
+          sempit: true, judul: 'Dokumen Berhasil Diterbitkan',
+          isi: '<div class="tgh"><div class="kpi-ikon hijau" style="width:52px;height:52px;font-size:24px;' +
+            'margin:0 auto 14px"><i class="bi bi-patch-check-fill"></i></div>' +
+            '<div class="mb12">' + chipNomor(nomor) + '</div>' +
+            '<div class="tx-md tx-2">' + esc(r.data.perihal || r.data.tentang) + '</div></div>',
+          kaki: '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>' +
+                '<button class="btn btn-utama" onclick="tutupModal();pratinjauBerkas(\'' + esc(r.data.pdfUrl) +
+                '\',\'' + esc(String(nomor).replace(/'/g, '')) + '\')">' +
+                '<i class="bi bi-file-earmark-pdf"></i> Lihat PDF Resmi</button>',
+          tanpaFokus: true
+        });
+      }
     });
   });
 }
 
+/* ── Tarik kembali ──────────────────────────────────────────────── */
 function tarikDokumen(modul, id) {
   bukaModal({
     sempit: true,
@@ -310,123 +516,26 @@ function prosesTarik(modul, id) {
     if (!r.success) { toast(r.message, 'galat'); return; }
     tutupModal();
     toast(r.message, 'sukses');
-    segarkanModul(modul);
+    upsertLokal(modul, r.data);
+    if (Adm.modulAktif === modul) renderModul(modul);
   });
 }
 
-/* ── Panel template Google Docs ─────────────────────────────────── */
-function bukaPanelTemplate() {
-  var tpl = Adm.boot.master.templateDoc || [];
-  var jenis = Adm.boot.master.jenisSurat || [];
-
-  var isi = '<div class="baris g10 mb16" style="align-items:flex-start;background:var(--info-bg);' +
-    'color:var(--info-fg);padding:13px 15px;border-radius:var(--r-lg)">' +
-    '<i class="bi bi-info-circle-fill" style="margin-top:2px"></i>' +
-    '<div class="sisa tx-sm" style="line-height:1.65">Kop surat berupa <b>gambar</b> yang Anda sisipkan ' +
-    'sendiri di Google Docs — bukan dihasilkan sistem. Buka template, ganti baris kop dengan gambar kop ' +
-    'resmi Anda, lalu simpan. Perubahan langsung berlaku pada penerbitan berikutnya.</div></div>';
-
-  isi += '<div class="tabel-bungkus"><table class="data"><thead><tr>' +
-    '<th>Jenis Surat</th><th>Template</th><th>Diperbarui</th><th style="text-align:right">Aksi</th>' +
-    '</tr></thead><tbody>';
-
-  jenis.forEach(function (j) {
-    var t = tpl.filter(function (x) { return x.kodeJenis === j.kode; })[0];
-    isi += '<tr><td><div class="t-judul">' + esc(j.nama) + '</div>' +
-      '<div class="t-sub mono">' + esc(j.kode) + '</div></td>' +
-      '<td>' + (t ? '<span class="lencana ok"><i class="bi bi-check-circle"></i> Tersedia</span>'
-                  : '<span class="lencana warn"><i class="bi bi-dash-circle"></i> Belum dibuat</span>') + '</td>' +
-      '<td class="tx-sm tx-3">' + (t ? tgl(t.diperbarui) : '—') + '</td>' +
-      '<td><div class="aksi">' +
-      (t ? '<a class="btn btn-hantu btn-ikon" title="Edit di Google Docs" target="_blank" rel="noopener" href="' +
-           esc(t.docUrl) + '"><i class="bi bi-box-arrow-up-right"></i></a>' : '') +
-      (Sesi.boleh('master') && t ? '<button class="btn btn-hantu btn-ikon" title="Buat ulang template" ' +
-           'onclick="buatUlangTemplate(\'' + esc(j.kode) + '\')"><i class="bi bi-arrow-repeat"></i></button>' : '') +
-      (Sesi.boleh('master') ? '<button class="btn btn-hantu btn-ikon" title="Hubungkan Doc sendiri" ' +
-           'onclick="hubungkanDoc(\'' + esc(j.kode) + '\')"><i class="bi bi-link-45deg"></i></button>' : '') +
-      '</div></td></tr>';
-  });
-
-  isi += '</tbody></table></div>';
-
+/* ── Panel template (pintasan dari halaman surat) ───────────────── */
+function bukaPanelTemplate(modul) {
   bukaModal({
     lebar: true,
-    judul: 'Panel Template Google Docs',
-    sub: 'Kelola sembilan template starter yang dipakai mesin penerbitan dokumen.',
-    isi: isi,
+    judul: 'Template Google Docs Instansi',
+    sub: 'Tempel URL template milik instansi → sistem memindai placeholder → kolom generator terbentuk otomatis.',
+    isi: panduanAlurTemplate() + tabelTemplateHtml(modul),
     kaki: '<button class="btn btn-garis" onclick="tutupModal()">Tutup</button>' +
-          (Sesi.boleh('tulis') ? '<button class="btn btn-utama" id="btnSiapkanTpl" onclick="siapkanTemplate()">' +
-            '<i class="bi bi-magic"></i> Buat Template yang Belum Ada</button>' : '')
-  });
-}
-
-function siapkanTemplate() {
-  var btn = el('btnSiapkanTpl');
-  tombolSibuk(btn, true, 'Membuat template…');
-  kirim('siapkanTemplateDoc', {}, APP.batasWaktuUnggah).then(function (r) {
-    tombolSibuk(btn, false);
-    if (!r.success) { toast(r.message, 'galat'); return; }
-    toast(r.message, 'sukses');
-    kirim('refreshModul', { modul: 'templateDoc' }).then(function (r2) {
-      if (r2.success) Adm.boot.master.templateDoc = r2.data;
-      tutupModal();
-      bukaPanelTemplate();
-    });
-  });
-}
-
-function buatUlangTemplate(kode) {
-  konfirmasi({
-    judul: 'Buat Ulang Template',
-    pesan: 'Template baru akan dibuat dari starter bawaan dan menggantikan tautan lama. ' +
-           'Dokumen lama tidak dihapus dari Drive, tetapi tidak lagi dipakai sistem.',
-    ya: 'Ya, Buat Ulang'
-  }).then(function (ya) {
-    if (!ya) return;
-    kirim('buatUlangTemplateDoc', { kodeJenis: kode }, APP.batasWaktuUnggah).then(function (r) {
-      if (!r.success) { toast(r.message, 'galat'); return; }
-      toast(r.message, 'sukses');
-      kirim('refreshModul', { modul: 'templateDoc' }).then(function (r2) {
-        if (r2.success) Adm.boot.master.templateDoc = r2.data;
-        tutupModal(); bukaPanelTemplate();
-      });
-    });
-  });
-}
-
-function hubungkanDoc(kode) {
-  bukaModal({
-    sempit: true,
-    judul: 'Hubungkan Google Docs Sendiri',
-    sub: 'Gunakan dokumen milik Anda sebagai template untuk jenis surat ' + kode + '.',
-    isi: bidangTeks({ id: 'tplUrl', label: 'URL Google Docs', wajib: true,
-      placeholder: 'https://docs.google.com/document/d/…/edit',
-      bantu: 'Pastikan akun pemilik skrip memiliki akses <b>Editor</b> pada dokumen tersebut, dan ' +
-             'dokumen sudah memuat placeholder seperti {{NOMOR}}, {{ISI}}, {{TTE}}, dan {{QR}}.' }),
-    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
-          '<button class="btn btn-utama" id="btnHubungkan" onclick="prosesHubungkanDoc(\'' + kode + '\')">' +
-          '<i class="bi bi-link-45deg"></i> Hubungkan</button>'
-  });
-}
-
-function prosesHubungkanDoc(kode) {
-  var url = ambilNilai('tplUrl');
-  if (!url) { tandaiGalat(el('tplUrl'), 'URL wajib diisi.'); return; }
-  var btn = el('btnHubungkan');
-  tombolSibuk(btn, true);
-  kirim('hubungkanTemplateDoc', { kodeJenis: kode, docUrl: url }).then(function (r) {
-    tombolSibuk(btn, false);
-    if (!r.success) { toast(r.message, 'galat'); return; }
-    toast(r.message, 'sukses');
-    kirim('refreshModul', { modul: 'templateDoc' }).then(function (r2) {
-      if (r2.success) Adm.boot.master.templateDoc = r2.data;
-      tutupModal(); bukaPanelTemplate();
-    });
+          (Sesi.boleh('tulis') ? '<button class="btn btn-hantu" id="btnSiapkanTpl" onclick="siapkanTemplate()">' +
+            '<i class="bi bi-magic"></i> Buat Starter untuk yang Belum Ada</button>' : '')
   });
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   SURAT KEPUTUSAN (SK)
+   SURAT KEPUTUSAN (SK) — daftar
    ══════════════════════════════════════════════════════════════════ */
 function renderSK(w) {
   var data = (Adm.boot.data.sk || []).slice().reverse();
@@ -441,14 +550,16 @@ function renderSK(w) {
   var h = kepalaHalaman({
     remah: ['Arsip & Persuratan', 'Surat Keputusan'],
     judul: 'Surat Keputusan (SK)',
-    sub: 'Penerbitan SK Kebijakan, Pengangkatan, dan Dispensasi dengan struktur Menimbang – Mengingat – Menetapkan.',
-    aksi: Sesi.boleh('tulis') ? '<button class="btn btn-utama" onclick="bukaGeneratorSK()">' +
-      '<i class="bi bi-file-earmark-plus"></i> Buat SK Baru</button>' : ''
+    sub: 'Penerbitan SK dari template Google Docs instansi — kolom Menimbang, Mengingat, Menetapkan, dan isian lain mengikuti template.',
+    aksi: (Sesi.boleh('tulis') ? '<button class="btn btn-utama" onclick="bukaGeneratorSK()">' +
+      '<i class="bi bi-file-earmark-plus"></i> Buat SK Baru</button>' : '') +
+      '<button class="btn btn-garis" onclick="bukaPanelTemplate(\'sk\')">' +
+      '<i class="bi bi-file-earmark-richtext"></i> Template Docs</button>'
   });
 
   h += '<div class="kartu kartu-rapat">' +
     '<div class="tabel-alat"><div class="cari"><i class="bi bi-search"></i>' +
-    '<input type="search" value="' + esc(cari) + '" placeholder="Cari nomor SK atau judul…" ' +
+    '<input type="search" id="cari_sk" value="' + esc(cari) + '" placeholder="Cari nomor SK atau judul…" ' +
     'oninput="cariModul(\'sk\',this.value)"></div><div class="sisa"></div>' +
     '<button class="btn btn-garis btn-sm" onclick="eksporModul(\'sk\')">' +
     '<i class="bi bi-filetype-csv"></i> Ekspor</button></div>' +
@@ -458,150 +569,10 @@ function renderSK(w) {
       judulKosong: 'Belum ada Surat Keputusan',
       deskKosong: 'SK yang diterbitkan akan tercatat di sini beserta PDF resminya.',
       ikonKosong: 'bi-file-earmark-ruled',
-      aksi: function (r) {
-        var a = '<button class="btn btn-hantu btn-ikon" title="Detail" onclick="lihatDetail(\'sk\',\'' +
-                r.id + '\')"><i class="bi bi-eye"></i></button>';
-        if (r.pdfUrl) a += tombolPratinjau(r.pdfUrl, r.nomorSK, 'bi-file-earmark-pdf', 'Pratinjau PDF');
-        if (Sesi.boleh('tulis') && r.status === 'DRAF')
-          a += '<button class="btn btn-hantu btn-ikon" title="Lanjutkan draf" onclick="bukaGeneratorSK(\'' +
-               r.id + '\')"><i class="bi bi-pencil"></i></button>';
-        if (Sesi.boleh('tulis'))
-          a += '<button class="btn btn-hantu btn-ikon" title="Unggah scan asli" onclick="bukaUnggahScan(\'sk\',\'' +
-               r.id + '\')"><i class="bi bi-upload"></i></button>';
-        if (Sesi.boleh('tulis') && r.status === 'TERBIT')
-          a += '<button class="btn btn-hantu btn-ikon" title="Tarik kembali" onclick="tarikDokumen(\'sk\',\'' +
-               r.id + '\')"><i class="bi bi-arrow-counterclockwise"></i></button>';
-        if (Sesi.boleh('hapus'))
-          a += '<button class="btn btn-hantu btn-ikon" title="Hapus" onclick="hapusData(\'sk\',\'' +
-               r.id + '\')"><i class="bi bi-trash"></i></button>';
-        return a;
-      }
+      aksi: function (r) { return aksiDokumen('sk', r, r.nomorSK, 'bukaGeneratorSK'); }
     }) + '</div>';
 
   w.innerHTML = h;
-}
-
-function bukaGeneratorSK(id) {
-  var rec = id ? (Adm.boot.data.sk || []).filter(function (r) { return String(r.id) === String(id); })[0] : null;
-  rec = rec || { tteAktif: 'true' };
-
-  var jenis = (Adm.boot.master.jenisSurat || []).filter(function (j) {
-    return j.modul === 'sk' && String(j.aktif) === 'true';
-  });
-  var pejabat = (Adm.boot.master.pejabat || []).filter(function (p) { return String(p.aktif) === 'true'; });
-
-  var isi =
-    '<div class="pratinjau-nomor mb16">' +
-    '<div class="pn-label"><span>Nomor Surat Keputusan</span>' +
-    '<span class="lencana emas"><i class="bi bi-lightning-charge"></i> Otomatis</span></div>' +
-    '<div class="pn-nilai" id="pn2Nomor">— pilih jenis SK —</div>' +
-    '<div class="pn-ket" id="pn2Ket">Nomor dikunci saat SK diterbitkan</div></div>' +
-
-    '<div class="grid-2">' +
-    bidangPilih({ id: 'sk2Jenis', label: 'Jenis Surat Keputusan', wajib: true, nilai: rec.kodeJenis,
-      opsi: jenis.map(function (j) { return { v: j.kode, t: j.nama + ' (' + j.kode + ')' }; }) }) +
-    bidangTeks({ id: 'sk2Tanggal', label: 'Tanggal Penetapan', tipe: 'date', nilai: tglInput(rec.tanggalSK) }) +
-    '</div>' +
-
-    bidangArea({ id: 'sk2Tentang', label: 'Tentang (Judul Keputusan)', wajib: true, baris: 2,
-      nilai: rec.tentang, placeholder: 'Pengangkatan Dosen Pembimbing Akademik Mahasiswa Baru TA 2026/2027' }) +
-
-    '<div class="bidang"><label>Menimbang</label>' +
-    editorNaskah('sk2Menimbang', rec.menimbang || '',
-      'a. bahwa dalam rangka … ; b. bahwa berdasarkan pertimbangan sebagaimana dimaksud …', 140) + '</div>' +
-
-    '<div class="bidang"><label>Mengingat</label>' +
-    editorNaskah('sk2Mengingat', rec.mengingat || '',
-      '1. Undang-Undang Nomor 12 Tahun 2012 tentang Pendidikan Tinggi; 2. Statuta …', 140) + '</div>' +
-
-    '<div class="bidang"><label>Menetapkan <span class="wajib">*</span></label>' +
-    editorNaskah('sk2Menetapkan', rec.menetapkan || '',
-      'KESATU : … ; KEDUA : … ; KETIGA : Keputusan ini berlaku sejak tanggal ditetapkan.', 170) + '</div>' +
-
-    bidangPilih({ id: 'sk2Pejabat', label: 'Pejabat Penetap', wajib: true, nilai: rec.pejabatId,
-      opsi: pejabat.map(function (p) {
-        return { v: p.id, t: p.nama + (p.gelar ? ', ' + p.gelar : '') + ' — ' + p.jabatan };
-      }) }) +
-
-    '<div class="kartu kartu-rapat" style="background:var(--navy-dark);border:none;color:#fff">' +
-    '<div class="baris antara g12"><div class="sisa">' +
-    '<div class="tebal tx-md" style="color:#fff">Tanda Tangan Elektronik &amp; QR Validasi</div>' +
-    '<div class="tx-sm mt4" style="color:rgba(255,255,255,.6)">Spesimen paraf pejabat disematkan otomatis ' +
-    'pada lembar penetapan.</div></div>' +
-    '<label class="saklar"><input type="checkbox" id="sk2Tte"' +
-    (String(rec.tteAktif) !== 'false' ? ' checked' : '') + '><span class="track"></span></label></div></div>';
-
-  bukaModal({
-    lebar: true,
-    judul: id ? 'Lanjutkan Draf SK' : 'Generator Surat Keputusan',
-    sub: 'Struktur baku: Menimbang → Mengingat → Memutuskan → Menetapkan.',
-    isi: isi,
-    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
-          '<button class="btn btn-hantu" id="btnDrafSK" onclick="simpanDrafSK(\'' + (id || '') + '\')">' +
-          '<i class="bi bi-save"></i> Simpan Draf</button>' +
-          '<button class="btn btn-utama" id="btnTerbitSK" onclick="terbitkanSKKlien(\'' + (id || '') + '\')">' +
-          '<i class="bi bi-file-earmark-check"></i> Terbitkan SK</button>',
-    setelah: function () {
-      var s = el('sk2Jenis');
-      s.addEventListener('change', muatPratinjauNomor);
-      if (s.value) muatPratinjauNomor();
-    }
-  });
-}
-
-function kumpulkanSK(id) {
-  return {
-    id: id || '',
-    kodeJenis: ambilNilai('sk2Jenis'),
-    tanggalSK: ambilNilai('sk2Tanggal'),
-    tentang: ambilNilai('sk2Tentang'),
-    menimbang: ambilEditor('sk2Menimbang'),
-    mengingat: ambilEditor('sk2Mengingat'),
-    menetapkan: ambilEditor('sk2Menetapkan'),
-    pejabatId: ambilNilai('sk2Pejabat'),
-    tteAktif: el('sk2Tte').checked ? 'true' : 'false'
-  };
-}
-
-function simpanDrafSK(id) {
-  if (!validasiForm(null, [{ id: 'sk2Jenis', wajib: true }, { id: 'sk2Tentang', wajib: true }])) return;
-  var btn = el('btnDrafSK');
-  var rec = kumpulkanSK(id);
-  rec.status = 'DRAF';
-  tombolSibuk(btn, true, 'Menyimpan…');
-  kirim('simpanRecord', { modul: 'sk', data: rec }).then(function (r) {
-    tombolSibuk(btn, false);
-    if (!r.success) { toast(r.message, 'galat'); return; }
-    tutupModal(); toast('Draf SK tersimpan.', 'sukses'); segarkanModul('sk');
-  });
-}
-
-function terbitkanSKKlien(id) {
-  if (!validasiForm(null, [
-    { id: 'sk2Jenis', wajib: true }, { id: 'sk2Tentang', wajib: true }, { id: 'sk2Pejabat', wajib: true }
-  ])) return;
-  if (editorKosong('sk2Menetapkan')) {
-    toast('Bagian "Menetapkan" wajib diisi.', 'peringatan');
-    el('sk2Menetapkan').focus();
-    return;
-  }
-  var rec = kumpulkanSK(id);
-
-  konfirmasi({
-    judul: 'Terbitkan Surat Keputusan',
-    pesan: 'Nomor SK akan dikunci permanen dan dokumen PDF diarsipkan ke Google Drive.',
-    ya: 'Ya, Terbitkan SK'
-  }).then(function (ya) {
-    if (!ya) return;
-    var btn = el('btnTerbitSK');
-    tombolSibuk(btn, true, 'Menerbitkan…');
-    kirim('terbitkanSK', { record: rec, qrDataUrl: buatQrDataUrl(rec.tentang) }, APP.batasWaktuUnggah)
-      .then(function (r) {
-        tombolSibuk(btn, false);
-        if (!r.success) { toast(r.message, 'galat'); return; }
-        tutupModal(); toast(r.message, 'sukses'); segarkanModul('sk');
-      });
-  });
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -630,7 +601,7 @@ function renderBeritaAcara(w) {
 
   h += '<div class="kartu kartu-rapat">' +
     '<div class="tabel-alat"><div class="cari"><i class="bi bi-search"></i>' +
-    '<input type="search" value="' + esc(cari) + '" placeholder="Cari agenda atau nomor dokumen…" ' +
+    '<input type="search" id="cari_beritaAcara" value="' + esc(cari) + '" placeholder="Cari agenda atau nomor dokumen…" ' +
     'oninput="cariModul(\'beritaAcara\',this.value)"></div><div class="sisa"></div>' +
     '<button class="btn btn-garis btn-sm" onclick="eksporModul(\'beritaAcara\')">' +
     '<i class="bi bi-filetype-csv"></i> Ekspor</button></div>' +
@@ -687,7 +658,6 @@ function bukaFormBA(kategori, id) {
       placeholder: 'Tulis satu nama per baris.',
       bantu: 'Setiap baris menjadi satu butir daftar hadir pada dokumen.' });
 
-  /* Perekam suara — khusus notulensi */
   if (notulensi) {
     isi += '<div class="kartu kartu-rapat mb16" style="background:var(--surface-2)">' +
       '<div class="baris antara g12 bungkus mb12">' +
@@ -728,6 +698,7 @@ function bukaFormBA(kategori, id) {
 
   bukaModal({
     lebar: true,
+    kunci: true,
     judul: (id ? 'Ubah ' : 'Buat ') + (notulensi ? 'Notulensi Rapat' : 'Berita Acara'),
     sub: 'Nomor dokumen (' + (notulensi ? 'NOT' : 'BA') + ') dialokasikan saat dokumen diterbitkan.',
     isi: isi,
@@ -766,25 +737,24 @@ function simpanBA(kategori, id, terbit) {
   var btn = el(terbit ? 'btnTerbitBA' : 'btnDrafBA');
   tombolSibuk(btn, true, terbit ? 'Membuat dokumen…' : 'Menyimpan…');
 
+  var selesai = function (r, pesan) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+    tutupModal(); toast(pesan || r.message, 'sukses');
+    upsertLokal('beritaAcara', r.data);
+    if (Adm.modulAktif === 'beritaAcara') renderModul('beritaAcara');
+    segarkanModul('beritaAcara', true);
+  };
+
   if (!terbit) {
     rec.status = 'DRAF';
-    kirim('simpanRecord', { modul: 'beritaAcara', data: rec }).then(function (r) {
-      tombolSibuk(btn, false);
-      if (!r.success) { toast(r.message, 'galat'); return; }
-      tutupModal(); toast('Draf tersimpan.', 'sukses'); segarkanModul('beritaAcara');
-    });
+    kirim('simpanRecord', { modul: 'beritaAcara', data: rec }).then(function (r) { selesai(r, 'Draf tersimpan.'); });
     return;
   }
 
   kirim('terbitkanBeritaAcara', {
     record: rec, qrDataUrl: buatQrDataUrl(rec.agenda)
-  }, APP.batasWaktuUnggah).then(function (r) {
-    tombolSibuk(btn, false);
-    if (!r.success) { toast(r.message, 'galat'); return; }
-    tutupModal();
-    toast(r.message, 'sukses');
-    segarkanModul('beritaAcara');
-  });
+  }, APP.batasWaktuUnggah).then(function (r) { selesai(r); });
 }
 
 /* ── Perekam suara ──────────────────────────────────────────────── */
@@ -814,10 +784,9 @@ function mulaiRekaman() {
       var blob = new Blob(Surat.potongan, { type: Surat.rekam.mimeType || 'audio/webm' });
       Surat.blobAudio = blob;
       var a = el('baAudio');
-      a.src = URL.createObjectURL(blob);
-      a.classList.remove('sembunyi');
-      el('btnSimpanAudio').disabled = false;
-      el('btnTranskrip').disabled = false;
+      if (a) { a.src = URL.createObjectURL(blob); a.classList.remove('sembunyi'); }
+      if (el('btnSimpanAudio')) el('btnSimpanAudio').disabled = false;
+      if (el('btnTranskrip')) el('btnTranskrip').disabled = false;
       toast('Rekaman selesai (' + formatUkuran(blob.size) + '). Simpan ke Drive atau langsung transkripsikan.', 'sukses');
     };
 
@@ -877,9 +846,9 @@ function transkripAudio() {
     }, APP.batasWaktuUnggah);
   }).then(function (r) {
     tombolSibuk(btn, false);
-    if (!r.success) { toast(r.message, 'galat'); return; }
+    if (!r.success) { toast(r.message, 'galat', 9000); return; }
     el('baTranskrip').value = r.data.hasil;
-    toast('Transkripsi selesai. Periksa hasil lalu klik "Rapikan Jadi Notulensi".', 'sukses');
+    toast(r.message + ' Periksa hasil lalu klik "Rapikan Jadi Notulensi".', 'sukses');
   }).catch(function (e) { tombolSibuk(btn, false); toast(e.message, 'galat'); });
 }
 
@@ -889,7 +858,7 @@ function rapikanTranskrip() {
 
   toast('Merapikan transkrip menjadi notulensi terstruktur…', 'info');
   kirim('rapikanTranskripAI', { transkrip: t }, APP.batasWaktuUnggah).then(function (r) {
-    if (!r.success) { toast(r.message, 'galat'); return; }
+    if (!r.success) { toast(r.message, 'galat', 9000); return; }
     el('baRingkasan').innerHTML = r.data.hasil;
     toast('Notulensi terstruktur berhasil dibuat. Silakan periksa dan sunting bila perlu.', 'sukses');
   });

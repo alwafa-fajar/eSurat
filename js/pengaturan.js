@@ -1,22 +1,27 @@
 /* ═══════════════════════════════════════════════════════════════════
-   e-SURAT — js/pengaturan.js
+   e-SURAT — js/pengaturan.js  (v4.2)
    Pengaturan sistem & CRUD seluruh master data (khusus SUPER_ADMIN).
+
+   v4.2:
+   · Template Google Docs: tempel URL template instansi → PINDAI
+     placeholder → atur label/tipe/wajib kolom isian generator
+   · Model Gemini terbaru (tingkat gratis hingga Pro) + model kustom
+   · Kunci rahasia tidak pernah dikirim ke peramban (tampil tersamar)
    ═══════════════════════════════════════════════════════════════════ */
 
 var Ptr = { tab: 'identitas' };
 
-/* ── Definisi tab ───────────────────────────────────────────────── */
 var TAB_PENGATURAN = [
   { k: 'identitas',  n: 'Identitas Institusi',   i: 'bi-building' },
   { k: 'pejabat',    n: 'Pejabat & TTD',         i: 'bi-pen' },
   { k: 'jenisSurat', n: 'Format Penomoran',      i: 'bi-hash' },
+  { k: 'templateDoc',n: 'Template Google Docs',  i: 'bi-file-earmark-richtext' },
   { k: 'alurVerifikasi', n: 'Alur Verifikasi',   i: 'bi-diagram-3' },
   { k: 'pengguna',   n: 'Pengguna & Hak Akses',  i: 'bi-people' },
   { k: 'prodi',      n: 'Program Studi',         i: 'bi-mortarboard' },
   { k: 'skema',      n: 'Skema Keringanan',      i: 'bi-cash-coin' },
   { k: 'klasifikasi',n: 'Klasifikasi Karya',     i: 'bi-journal-bookmark' },
   { k: 'berkasSyarat', n: 'Berkas Syarat Pengajuan', i: 'bi-list-check' },
-  { k: 'templateDoc',n: 'Template Google Docs',  i: 'bi-file-earmark-richtext' },
   { k: 'templateDokumen', n: 'Template Internal (HTML)', i: 'bi-code-slash' },
   { k: 'berkasTemplate',  n: 'Berkas Template Unduhan',  i: 'bi-download' },
   { k: 'heroSlide',  n: 'Hero Portal',           i: 'bi-images' },
@@ -27,7 +32,24 @@ var TAB_PENGATURAN = [
   { k: 'log',        n: 'Log Aktivitas',         i: 'bi-clock-history' }
 ];
 
-/* ── Skema tiap master data ─────────────────────────────────────── */
+/** Model Gemini API — diperbarui September 2026. */
+var MODEL_GEMINI = [
+  { grup: 'Tingkat Gratis (Free Tier)' },
+  { v: 'gemini-3.8-flash',      t: 'Gemini 3.8 Flash — terbaru & paling cerdas (disarankan)' },
+  { v: 'gemini-3.7-flash',      t: 'Gemini 3.7 Flash' },
+  { v: 'gemini-3.6-flash',      t: 'Gemini 3.6 Flash — seimbang kecepatan & multimodal' },
+  { v: 'gemini-3.5-flash',      t: 'Gemini 3.5 Flash — stabil, volume tinggi' },
+  { v: 'gemini-3.5-flash-lite', t: 'Gemini 3.5 Flash-Lite — tercepat & paling hemat kuota' },
+  { v: 'gemini-3.1-flash-lite', t: 'Gemini 3.1 Flash-Lite' },
+  { v: 'gemini-3-flash-preview',t: 'Gemini 3 Flash (Preview)' },
+  { v: 'gemini-2.5-pro',        t: 'Gemini 2.5 Pro — penalaran mendalam (kuota gratis terbatas)' },
+  { v: 'gemini-2.5-flash',      t: 'Gemini 2.5 Flash' },
+  { akhirGrup: true },
+  { grup: 'Berbayar (Pro — perlu penagihan aktif)' },
+  { v: 'gemini-3.1-pro-preview',t: 'Gemini 3.1 Pro (Preview) — kecerdasan tertinggi' },
+  { akhirGrup: true }
+];
+
 var MASTER_SKEMA = {
   pejabat: {
     judul: 'Pejabat Penandatangan',
@@ -86,6 +108,7 @@ var MASTER_SKEMA = {
       { k: 'urutan', l: 'Urutan' },
       { k: 'namaTahap', l: 'Nama Tahap', tipe: 'utama' },
       { k: 'jabatan', l: 'Jabatan Verifikator' },
+      { k: 'email', l: 'Verifikator Terkunci' },
       { k: 'aktif', l: 'Status', tipe: 'lencana' }
     ],
     bidang: [
@@ -94,7 +117,9 @@ var MASTER_SKEMA = {
       { id: 'urutan', l: 'Urutan Jenjang', t: 'number', wajib: true, kolom: 2 },
       { id: 'namaTahap', l: 'Nama Tahap', wajib: true, ph: 'Verifikasi Berkas & Keuangan' },
       { id: 'jabatan', l: 'Jabatan Verifikator', wajib: true, ph: 'Pembantu Ketua II' },
-      { id: 'email', l: 'Surel Notifikasi Verifikator', t: 'email' },
+      { id: 'email', l: 'Surel Akun Verifikator (opsional)', ph: 'puket2@kampus.ac.id, keuangan@kampus.ac.id',
+        bantu: 'Isi surel akun login (pisahkan koma) untuk <b>mengunci</b> tahap ini hanya bagi akun tersebut. ' +
+               'Kosongkan = seluruh Admin & Pimpinan boleh memverifikasi tahap ini.' },
       { id: 'aktif', l: 'Status', t: 'pilih', opsi: ['true', 'false'] }
     ]
   },
@@ -115,7 +140,7 @@ var MASTER_SKEMA = {
       { id: 'peran', l: 'Peran Akses', t: 'pilih', wajib: true, kolom: 2,
         opsi: ['SUPER_ADMIN', 'ADMIN', 'PIMPINAN'] },
       { id: 'password', l: 'Kata Sandi', t: 'password',
-        bantu: 'Kosongkan bila tidak ingin mengubah. Untuk akun baru, kosong berarti <span class="mono">admin123</span>.' },
+        bantu: 'Minimal 8 karakter. <b>Wajib</b> untuk akun baru; kosongkan bila tidak ingin mengubah kata sandi akun lama.' },
       { id: 'aktif', l: 'Status Akun', t: 'pilih', opsi: ['true', 'false'] }
     ]
   },
@@ -254,7 +279,7 @@ var MASTER_SKEMA = {
     bidang: [
       { id: 'judul', l: 'Judul Slide', wajib: true },
       { id: 'subjudul', l: 'Subjudul', t: 'area', baris: 2 },
-      { id: 'gambarUrl', l: 'URL Gambar Latar (opsional)' },
+      { id: 'gambarUrl', l: 'URL Gambar Latar (opsional, https://)' },
       { id: 'urutan', l: 'Urutan', t: 'number', kolom: 2 },
       { id: 'aktif', l: 'Status', t: 'pilih', kolom: 2, opsi: ['true', 'false'] }
     ]
@@ -290,13 +315,13 @@ function renderPengaturan(w) {
   var h = kepalaHalaman({
     remah: ['Sistem Administrasi', 'Master Data', 'Konfigurasi Inti'],
     judul: 'Pengaturan & Master Data Sistem',
-    sub: 'Konfigurasi parameter otomatisasi Google Apps Script, format penomoran surat, data pejabat ' +
-         'penandatangan, dan integrasi API.',
+    sub: 'Konfigurasi parameter otomatisasi Google Apps Script, format penomoran surat, template instansi, ' +
+         'data pejabat penandatangan, dan integrasi API.',
     aksi: '<span class="chip-nomor"><i class="bi bi-shield-check"></i> Akses Penuh · Super Admin</span>'
   });
 
   h += '<div class="tab-bar">' + TAB_PENGATURAN.map(function (t, i) {
-    return '<button class="' + (Ptr.tab === t.k ? 'aktif' : '') + '" onclick="gantiTabPengaturan(\'' +
+    return '<button data-tab="' + t.k + '" class="' + (Ptr.tab === t.k ? 'aktif' : '') + '" onclick="gantiTabPengaturan(\'' +
       t.k + '\')"><i class="bi ' + t.i + '"></i> ' + (i + 1) + '. ' + esc(t.n) + '</button>';
   }).join('') + '</div>';
 
@@ -307,20 +332,13 @@ function renderPengaturan(w) {
 
 function gantiTabPengaturan(k) {
   Ptr.tab = k;
-  $$('.tab-bar button').forEach(function (b) {
-    b.classList.toggle('aktif', b.textContent.indexOf(namaTab(k)) >= 0);
-  });
   gambarTabPengaturan();
-}
-
-function namaTab(k) {
-  var t = TAB_PENGATURAN.filter(function (x) { return x.k === k; })[0];
-  return t ? t.n : k;
 }
 
 function gambarTabPengaturan() {
   var w = el('setIsi');
   if (!w) return;
+  $$('.tab-bar button').forEach(function (b) { b.classList.toggle('aktif', b.dataset.tab === Ptr.tab); });
   jalankanAman(function () {
     switch (Ptr.tab) {
       case 'identitas':   return tabIdentitas(w);
@@ -332,9 +350,6 @@ function gambarTabPengaturan() {
       default:            return tabMaster(w, Ptr.tab);
     }
   }, 'Tab pengaturan');
-  $$('.tab-bar button').forEach(function (b) {
-    b.classList.toggle('aktif', b.textContent.indexOf(namaTab(Ptr.tab)) >= 0);
-  });
 }
 
 /* ── Tab: Identitas institusi ───────────────────────────────────── */
@@ -358,7 +373,6 @@ function tabIdentitas(w) {
     bidangTeks({ id: 'cfEmail', label: 'Surel Resmi', tipe: 'email', nilai: c.INSTITUSI_EMAIL }) + '</div>' +
     bidangTeks({ id: 'cfWebsite', label: 'Laman Resmi', tipe: 'url', nilai: c.INSTITUSI_WEBSITE }) +
 
-    /* ── Logo aplikasi: unggah gambar, bukan tempel URL ── */
     '<div class="bidang"><label>Logo Aplikasi</label>' +
     '<div class="baris g12 bungkus" style="align-items:flex-start;border:1px solid var(--border);' +
     'border-radius:var(--r-lg);padding:14px">' +
@@ -424,6 +438,8 @@ function simpanIdentitas() {
 /* ── Tab: Notifikasi & integrasi ────────────────────────────────── */
 function tabNotifikasi(w) {
   var c = Adm.boot.config || {};
+  var bantuRahasia = 'Tersimpan aman di server — peramban hanya melihat 4 karakter terakhir. ' +
+                     'Biarkan apa adanya bila tidak ingin mengubah; kosongkan untuk menghapus.';
   w.innerHTML =
     '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
     '<h3>Kanal Notifikasi</h3>' +
@@ -439,20 +455,25 @@ function tabNotifikasi(w) {
     '<div class="grid-2">' +
     bidangTeks({ id: 'cfWaUrl', label: 'URL Gateway WhatsApp', nilai: c.WA_GATEWAY_URL }) +
     bidangTeks({ id: 'cfWaToken', label: 'Token Gateway', tipe: 'password', nilai: c.WA_TOKEN,
-      bantu: 'Token disimpan pada sheet AppConfig di Spreadsheet milik Anda sendiri.' }) + '</div>' +
+      otomatis: 'off', bantu: bantuRahasia }) + '</div>' +
     '</div>' +
 
     '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
     '<h3>Integrasi Gemini AI</h3>' +
-    '<div class="kartu-sub">Transkripsi rekaman rapat dan perapian notulensi otomatis.</div>' +
+    '<div class="kartu-sub">Transkripsi rekaman rapat dan perapian notulensi otomatis. Bila model terpilih ' +
+    'tidak tersedia atau kuota habis, sistem otomatis mencoba model gratis berikutnya.</div>' +
     '</div><span class="lencana ' + (c.GEMINI_API_KEY ? 'ok' : 'neut') + '">' +
     (c.GEMINI_API_KEY ? 'Terkonfigurasi' : 'Belum diisi') + '</span></div>' +
     '<div class="grid-2">' +
     bidangTeks({ id: 'cfGeminiKey', label: 'API Key Gemini', tipe: 'password', nilai: c.GEMINI_API_KEY,
-      bantu: 'Dapatkan gratis di <span class="mono">aistudio.google.com/apikey</span>.' }) +
-    bidangPilih({ id: 'cfGeminiModel', label: 'Model yang Dipakai', nilai: c.GEMINI_MODEL,
-      opsi: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-pro'] }) +
-    '</div></div>' +
+      otomatis: 'off', bantu: 'Dapatkan gratis di <span class="mono">aistudio.google.com/apikey</span>. ' + bantuRahasia }) +
+    bidangPilih({ id: 'cfGeminiModel', label: 'Model yang Dipakai', nilai: c.GEMINI_MODEL, opsi: MODEL_GEMINI,
+      bantu: 'Model Pro memerlukan akun Google AI Studio dengan penagihan aktif.' }) +
+    '</div>' +
+    bidangTeks({ id: 'cfGeminiKustom', label: 'Model Kustom (opsional)', nilai: c.GEMINI_MODEL_KUSTOM,
+      placeholder: 'contoh: gemini-3.9-flash',
+      bantu: 'Isi bila Google merilis model baru yang belum ada di daftar. Mengisi kolom ini menimpa pilihan di atas.' }) +
+    '</div>' +
 
     '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
     '<h3>Batasan Unggahan Berkas</h3>' +
@@ -474,6 +495,11 @@ function tabNotifikasi(w) {
 }
 
 function simpanNotifikasi() {
+  var kustom = ambilNilai('cfGeminiKustom');
+  if (kustom && !/^[a-z0-9.\-]{3,60}$/i.test(kustom)) {
+    tandaiGalat(el('cfGeminiKustom'), 'Nama model hanya boleh huruf, angka, titik, dan tanda hubung.');
+    return;
+  }
   var btn = el('btnSimpanNotif');
   tombolSibuk(btn, true);
   simpanKonfigurasi({
@@ -482,7 +508,8 @@ function simpanNotifikasi() {
     WA_GATEWAY_URL: ambilNilai('cfWaUrl'),
     WA_TOKEN: ambilNilai('cfWaToken'),
     GEMINI_API_KEY: ambilNilai('cfGeminiKey'),
-    GEMINI_MODEL: ambilNilai('cfGeminiModel'),
+    GEMINI_MODEL: ambilNilai('cfGeminiModel') || 'gemini-3.8-flash',
+    GEMINI_MODEL_KUSTOM: kustom,
     UPLOAD_MAX_MB: ambilNilai('cfMaxMb'),
     UPLOAD_FORMAT: ambilNilai('cfFormat')
   }, btn);
@@ -576,6 +603,7 @@ function simpanKonfigurasi(obj, btn) {
     tombolSibuk(btn, false);
     if (!r.success) { toast(r.message, 'galat'); return; }
     Adm.boot.config = r.data;
+    Sesi.simpanBoot(Adm.boot);
     renderKerangkaAdmin();
     toast(r.message, 'sukses');
   });
@@ -594,6 +622,17 @@ function tabKeamanan(w) {
     '<button class="btn btn-navy" onclick="bukaGantiSandi()">' +
     '<i class="bi bi-key"></i> Ganti Kata Sandi Saya</button></div>' +
 
+    '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
+    '<h3>Perlindungan Aktif (v4.2)</h3></div></div>' +
+    '<ul style="padding-left:20px;line-height:2;font-size:13.5px;margin:0">' +
+    '<li>Masuk dikunci 15 menit setelah 5 kali salah kata sandi.</li>' +
+    '<li>Token sesi hanya dikirim di badan permintaan — tidak pernah tampil di URL.</li>' +
+    '<li>API key Gemini &amp; token WhatsApp tidak pernah dikirim ke peramban.</li>' +
+    '<li>Berkas pribadi pemohon (KK, KTP, slip gaji) tidak dibagikan publik; hanya dapat dibuka admin setelah login.</li>' +
+    '<li>Dokumen terbit tidak dapat diubah; nomor surat dikembalikan otomatis bila penerbitan gagal.</li>' +
+    '<li>Tahap verifikasi dapat dikunci ke akun tertentu (Alur Verifikasi → kolom surel).</li>' +
+    '</ul></div>' +
+
     '<div class="kartu"><div class="kartu-kepala"><div>' +
     '<h3>Praktik Keamanan yang Disarankan</h3></div></div>' +
     '<ul style="padding-left:20px;line-height:2;font-size:13.5px;margin:0">' +
@@ -601,41 +640,47 @@ function tabKeamanan(w) {
     '<li>Nonaktifkan akun yang tidak lagi dipakai alih-alih menghapusnya, agar jejak audit tetap utuh.</li>' +
     '<li>Batasi peran SUPER_ADMIN hanya untuk satu atau dua orang penanggung jawab sistem.</li>' +
     '<li>Tinjau Log Aktivitas secara berkala, terutama aksi penarikan dokumen dan bypass verifikasi.</li>' +
-    '<li>Sesi berakhir otomatis setelah 6 jam tidak aktif dan token tidak pernah muncul pada URL.</li>' +
+    '<li>Sesi berakhir otomatis setelah 6 jam tidak aktif.</li>' +
     '</ul></div>';
 }
 
 /* ── Tab: Log aktivitas ─────────────────────────────────────────── */
 function tabLog(w) {
-  w.innerHTML = '<div class="kartu kartu-rapat">' + keadaanMemuat('Memuat log aktivitas…') + '</div>';
+  if (window.__logData) { gambarLog(w, window.__logData); }
+  else w.innerHTML = '<div class="kartu kartu-rapat">' + keadaanMemuat('Memuat log aktivitas…') + '</div>';
 
   ambil('getLog', { limit: 300 }).then(function (r) {
+    if (Ptr.tab !== 'log' || !el('setIsi')) return;
     if (!r.success) {
-      w.innerHTML = '<div class="kartu">' + keadaanKosong('Log gagal dimuat', r.message,
+      el('setIsi').innerHTML = '<div class="kartu">' + keadaanKosong('Log gagal dimuat', r.message,
         'bi-exclamation-triangle') + '</div>';
       return;
     }
-    w.innerHTML = '<div class="kartu kartu-rapat">' +
-      '<div class="tabel-alat"><div class="label-kecil sisa">Audit Trail Seluruh Aksi Penting</div>' +
-      '<span class="lencana neut">' + r.data.length + ' entri terakhir</span>' +
-      '<button class="btn btn-garis btn-sm" onclick="eksporLog()"><i class="bi bi-filetype-csv"></i> Ekspor</button>' +
-      '</div>' +
-      bangunTabel({
-        data: r.data, idTabel: 'log', halaman: Adm.halaman.log || 1, perHalaman: 20,
-        kolom: [
-          { k: 'waktu', l: 'Waktu' },
-          { k: 'nama', l: 'Pelaku', tipe: 'utama' },
-          { k: 'peran', l: 'Peran', tipe: 'lencana' },
-          { k: 'aksi', l: 'Aksi', tipe: 'mono' },
-          { k: 'modul', l: 'Modul' },
-          { k: 'detail', l: 'Detail' }
-        ],
-        judulKosong: 'Belum ada aktivitas tercatat',
-        deskKosong: 'Setiap aksi penting akan tercatat otomatis di sini.',
-        ikonKosong: 'bi-clock-history'
-      }) + '</div>';
     window.__logData = r.data;
+    gambarLog(el('setIsi'), r.data);
   });
+}
+
+function gambarLog(w, data) {
+  w.innerHTML = '<div class="kartu kartu-rapat">' +
+    '<div class="tabel-alat"><div class="label-kecil sisa">Audit Trail Seluruh Aksi Penting</div>' +
+    '<span class="lencana neut">' + data.length + ' entri terakhir</span>' +
+    '<button class="btn btn-garis btn-sm" onclick="eksporLog()"><i class="bi bi-filetype-csv"></i> Ekspor</button>' +
+    '</div>' +
+    bangunTabel({
+      data: data, idTabel: 'log', halaman: Adm.halaman.log || 1, perHalaman: 20,
+      kolom: [
+        { k: 'waktu', l: 'Waktu' },
+        { k: 'nama', l: 'Pelaku', tipe: 'utama' },
+        { k: 'peran', l: 'Peran', tipe: 'lencana' },
+        { k: 'aksi', l: 'Aksi', tipe: 'mono' },
+        { k: 'modul', l: 'Modul' },
+        { k: 'detail', l: 'Detail' }
+      ],
+      judulKosong: 'Belum ada aktivitas tercatat',
+      deskKosong: 'Setiap aksi penting akan tercatat otomatis di sini.',
+      ikonKosong: 'bi-clock-history'
+    }) + '</div>';
 }
 
 function eksporLog() {
@@ -647,49 +692,288 @@ function eksporLog() {
   ], window.__logData));
 }
 
-/* ── Tab: Template Google Docs ──────────────────────────────────── */
-function tabTemplateDoc(w) {
-  var tpl = Adm.boot.master.templateDoc || [];
-  var jenis = Adm.boot.master.jenisSurat || [];
+/* ══════════════════════════════════════════════════════════════════
+   TEMPLATE GOOGLE DOCS INSTANSI
+   Alur: unggah template ke Drive → tempel URL → PINDAI placeholder →
+         atur kolom isian → generator surat menampilkan kolom tersebut
+   ══════════════════════════════════════════════════════════════════ */
+function panduanAlurTemplate() {
+  return '<div class="alur-tpl mb16">' +
+    langkahTpl(1, 'bi-cloud-upload', 'Siapkan template', 'Unggah template surat instansi (Google Docs) ke Google Drive — boleh di folder <b>Template_Dokumen</b>.') +
+    langkahTpl(2, 'bi-braces', 'Tulis placeholder', 'Tandai bagian yang berubah dengan <span class="mono">{{NAMA_PENANDA}}</span>, mis. <span class="mono">{{PERIHAL}}</span>, <span class="mono">{{ISI}}</span>, <span class="mono">{{NAMA_MAHASISWA}}</span>.') +
+    langkahTpl(3, 'bi-link-45deg', 'Tempel URL & pindai', 'Klik <b>Hubungkan</b>, tempel URL Docs. Sistem membaca seluruh placeholder secara otomatis.') +
+    langkahTpl(4, 'bi-ui-checks', 'Kolom terbentuk', 'Generator surat menampilkan kolom isian sesuai placeholder. Label & sifat wajib dapat diatur.') +
+    '</div>' +
+    '<div class="baris g8 mb16 tx-sm tx-2" style="align-items:flex-start"><i class="bi bi-type-bold"></i>' +
+    '<div class="sisa">Gaya huruf mengikuti penanda di template: tulis <b>{{PERIHAL}}</b> tebal bila perihal ingin tebal. ' +
+    'Isi naskah (<span class="mono">{{ISI}}</span>, <span class="mono">{{MENIMBANG}}</span>, dst.) otomatis rata kanan-kiri tanpa indentasi tambahan.</div></div>';
+}
 
-  w.innerHTML = '<div class="kartu"><div class="kartu-kepala"><div>' +
-    '<h3>Template Google Docs</h3>' +
-    '<div class="kartu-sub">Surat Keluar dan Surat Keputusan wajib memakai template Google Docs. ' +
-    'Kop surat berupa gambar yang Anda sisipkan sendiri di dokumen template.</div></div>' +
-    '<button class="btn btn-utama" id="btnSiapkanTpl" onclick="siapkanTemplate()">' +
-    '<i class="bi bi-magic"></i> Buat Template yang Belum Ada</button></div>' +
+function langkahTpl(n, ikon, judul, desk) {
+  return '<div class="alur-tpl-item"><div class="alur-tpl-no"><i class="bi ' + ikon + '"></i></div>' +
+    '<div><div class="tebal tx-md">' + n + '. ' + judul + '</div><div class="tx-sm tx-3">' + desk + '</div></div></div>';
+}
 
+/** Tabel template per jenis surat. @param modulFilter 'suratKeluar' | 'sk' | undefined (keduanya) */
+function tabelTemplateHtml(modulFilter) {
+  var jenis = (Adm.boot.master.jenisSurat || []).filter(function (j) {
+    return (j.modul === 'suratKeluar' || j.modul === 'sk') && (!modulFilter || j.modul === modulFilter);
+  });
+  var master = Sesi.boleh('master');
+
+  var h = '<div id="tabelTemplateWadah" data-modul="' + esc(modulFilter || '') + '">' +
     '<div class="tabel-bungkus"><table class="data responsif"><thead><tr>' +
-    '<th>Jenis Surat</th><th>Nama Template</th><th>Status</th><th>Diperbarui</th>' +
-    '<th style="text-align:right">Aksi</th></tr></thead><tbody>' +
-    jenis.map(function (j) {
-      var t = tpl.filter(function (x) { return x.kodeJenis === j.kode; })[0];
-      return '<tr><td data-label="Jenis Surat"><div class="t-judul">' + esc(j.nama) + '</div>' +
-        '<div class="t-sub mono">' + esc(j.kode) + '</div></td>' +
-        '<td data-label="Template">' + (t ? esc(t.namaTemplate) : '<span class="tx-3">—</span>') + '</td>' +
-        '<td data-label="Status">' + (t
-          ? '<span class="lencana ok"><i class="bi bi-check-circle"></i> Tersedia</span>'
-          : '<span class="lencana warn"><i class="bi bi-dash-circle"></i> Belum dibuat</span>') + '</td>' +
-        '<td data-label="Diperbarui" class="tx-sm tx-3">' + (t ? tgl(t.diperbarui) : '—') + '</td>' +
-        '<td data-label="Aksi"><div class="aksi">' +
-        (t ? '<a class="btn btn-hantu btn-ikon" title="Edit di Google Docs" target="_blank" rel="noopener" href="' +
-             esc(t.docUrl) + '"><i class="bi bi-box-arrow-up-right"></i></a>' +
-             '<button class="btn btn-hantu btn-ikon" title="Buat ulang" onclick="buatUlangTemplate(\'' +
-             esc(j.kode) + '\')"><i class="bi bi-arrow-repeat"></i></button>' : '') +
-        '<button class="btn btn-hantu btn-ikon" title="Hubungkan Doc sendiri" onclick="hubungkanDoc(\'' +
-        esc(j.kode) + '\')"><i class="bi bi-link-45deg"></i></button>' +
-        '</div></td></tr>';
-    }).join('') + '</tbody></table></div>' +
+    '<th>Jenis Surat</th><th>Template Terhubung</th><th>Kolom Isian</th><th>Diperbarui</th>' +
+    '<th style="text-align:right">Aksi</th></tr></thead><tbody>';
+
+  jenis.forEach(function (j) {
+    var t = templateUntuk(j.kode);
+    var bid = t ? bidangUntuk(j.kode, j.modul) : [];
+    var nIsian = bid.filter(function (b) { return b.sumber !== 'sistem'; }).length;
+    h += '<tr><td data-label="Jenis Surat"><div class="t-judul">' + esc(j.nama) + '</div>' +
+      '<div class="t-sub mono">' + esc(j.kode) + ' · ' + (j.modul === 'sk' ? 'SK' : 'Surat Keluar') + '</div></td>' +
+      '<td data-label="Template">' + (t
+        ? '<div class="tx-md">' + esc(potong(t.namaTemplate || 'Template', 48)) + '</div>' +
+          '<span class="lencana ok mt4"><i class="bi bi-check-circle"></i> Terhubung</span>'
+        : '<span class="lencana warn"><i class="bi bi-dash-circle"></i> Belum dihubungkan</span>') + '</td>' +
+      '<td data-label="Kolom Isian">' + (t ? '<b>' + nIsian + '</b> isian · ' + (bid.length - nIsian) + ' otomatis' : '—') + '</td>' +
+      '<td data-label="Diperbarui" class="tx-sm tx-3">' + (t ? tgl(t.diperbarui) : '—') + '</td>' +
+      '<td data-label="Aksi"><div class="aksi">' +
+      (master ? '<button class="btn btn-' + (t ? 'garis' : 'utama') + ' btn-sm" onclick="hubungkanDoc(\'' + esc(j.kode) + '\')">' +
+        '<i class="bi bi-link-45deg"></i> ' + (t ? 'Ganti' : 'Hubungkan') + '</button>' : '') +
+      (t && master ? '<button class="btn btn-hantu btn-ikon" title="Pindai ulang placeholder" onclick="pindaiUlang(\'' +
+        esc(j.kode) + '\',this)"><i class="bi bi-arrow-clockwise"></i></button>' +
+        '<button class="btn btn-hantu btn-ikon" title="Atur kolom isian" onclick="bukaAturKolom(\'' + esc(j.kode) + '\')">' +
+        '<i class="bi bi-sliders"></i></button>' : '') +
+      (t ? '<a class="btn btn-hantu btn-ikon" title="Buka di Google Docs" target="_blank" rel="noopener" href="' +
+        esc(t.docUrl) + '"><i class="bi bi-box-arrow-up-right"></i></a>' : '') +
+      (!t && master ? '<button class="btn btn-hantu btn-ikon" title="Buat template starter" onclick="buatUlangTemplate(\'' +
+        esc(j.kode) + '\')"><i class="bi bi-magic"></i></button>' : '') +
+      '</div></td></tr>';
+  });
+
+  if (!jenis.length) h += '<tr><td colspan="5">' + keadaanKosong('Belum ada jenis surat', 'Tambahkan di tab Format Penomoran.', 'bi-hash') + '</td></tr>';
+  return h + '</tbody></table></div></div>';
+}
+
+function tabTemplateDoc(w) {
+  w.innerHTML = '<div class="kartu"><div class="kartu-kepala"><div>' +
+    '<h3>Template Google Docs Instansi</h3>' +
+    '<div class="kartu-sub">Surat Keluar dan Surat Keputusan diterbitkan dari template milik instansi. ' +
+    'Kolom isian generator dibentuk otomatis dari placeholder template.</div></div>' +
+    '<button class="btn btn-garis" id="btnSiapkanTpl" onclick="siapkanTemplate()">' +
+    '<i class="bi bi-magic"></i> Buat Starter untuk yang Belum Ada</button></div>' +
+    panduanAlurTemplate() + tabelTemplateHtml() +
 
     '<div class="garis"></div>' +
-    '<div class="label-kecil mb8">Placeholder yang Tersedia di Template</div>' +
-    '<div class="baris g6 bungkus">' +
-    ['{{NOMOR}}','{{TANGGAL}}','{{KOTA}}','{{PERIHAL}}','{{PERIHAL_KAPITAL}}','{{LAMPIRAN}}','{{TUJUAN}}',
-     '{{ISI}}','{{JABATAN}}','{{JABATAN_KAPITAL}}','{{NAMA_PEJABAT}}','{{NIDN}}','{{TTE}}','{{QR}}',
-     '{{INSTITUSI}}','{{ALAMAT}}','{{TELEPON}}','{{EMAIL}}','{{WEBSITE}}','{{MENIMBANG}}','{{MENGINGAT}}',
-     '{{MENETAPKAN}}']
-      .map(function (p) { return '<span class="chip-nomor">' + esc(p) + '</span>'; }).join('') +
-    '</div></div>';
+    '<div class="label-kecil mb8">Placeholder Otomatis (tidak perlu diisi)</div>' +
+    '<div class="baris g6 bungkus mb16">' + PH_OTOMATIS.map(function (p) {
+      return '<span class="chip-nomor">{{' + esc(p) + '}}</span>';
+    }).join('') + '</div>' +
+    '<div class="label-kecil mb8">Placeholder Baku (kolom register)</div>' +
+    '<div class="baris g6 bungkus mb16">' + Object.keys(PH_BAKU_KLIEN).map(function (p) {
+      return '<span class="chip-nomor" title="' + esc(PH_BAKU_KLIEN[p].label) + '">{{' + esc(p) + '}}</span>';
+    }).join('') + '</div>' +
+    '<div class="tx-sm tx-3">Placeholder lain buatan instansi (mis. <span class="mono">{{NAMA_MAHASISWA}}</span>, ' +
+    '<span class="mono">{{TGL_KEGIATAN}}</span>) otomatis menjadi kolom isian baru saat dipindai.</div></div>';
+}
+
+/** Perbarui semua tampilan yang bergantung pada template (tabel, generator yang sedang terbuka). */
+function setelahTemplateBerubah(kode) {
+  Sesi.simpanBoot(Adm.boot);
+  var wadah = el('tabelTemplateWadah');
+  if (wadah) wadah.outerHTML = tabelTemplateHtml(wadah.dataset.modul || undefined);
+  if (el('gnBidang') && Gen.kode && (!kode || Gen.kode === kode)) {
+    simpanCacheGen();
+    renderBidangGen();
+    var s = el('gnJenis');
+    if (s) Array.prototype.forEach.call(s.options, function (o) {
+      if (!o.value) return;
+      o.textContent = o.textContent.replace(' — belum ada template', '') + (templateUntuk(o.value) ? '' : ' — belum ada template');
+    });
+  }
+}
+
+function hubungkanDoc(kode) {
+  var j = (Adm.boot.master.jenisSurat || []).filter(function (x) { return x.kode === kode; })[0] || { nama: kode };
+  var t = templateUntuk(kode);
+  bukaModal({
+    judul: 'Hubungkan Template — ' + j.nama,
+    sub: 'Tempel URL Google Docs template milik instansi. Sistem akan memindai placeholder-nya.',
+    isi:
+      '<div class="baris g10 mb16" style="align-items:flex-start;background:var(--info-bg);color:var(--info-fg);' +
+      'padding:12px 14px;border-radius:var(--r-lg)"><i class="bi bi-info-circle-fill" style="margin-top:2px"></i>' +
+      '<div class="sisa tx-sm" style="line-height:1.65">Pastikan akun Google <b>pemilik Apps Script</b> memiliki akses ' +
+      '<b>Editor</b> pada dokumen (cara termudah: simpan template di folder <b>e-SURAT_Storage › Template_Dokumen</b>). ' +
+      'Berkas Word (.docx) sebaiknya dibuka di Google Docs lalu <i>Berkas → Simpan sebagai Google Dokumen</i>.</div></div>' +
+      bidangTeks({ id: 'tplUrl', label: 'URL Google Docs Template', wajib: true, nilai: t ? t.docUrl : '',
+        placeholder: 'https://docs.google.com/document/d/…/edit',
+        bantu: 'Salin dari bilah alamat peramban saat template dibuka di Google Docs.' }) +
+      '<div id="tplHasil"></div>',
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
+          '<button class="btn btn-utama" id="btnHubungkan" onclick="prosesHubungkanDoc(\'' + esc(kode) + '\')">' +
+          '<i class="bi bi-search"></i> Pindai &amp; Hubungkan</button>'
+  });
+}
+
+function prosesHubungkanDoc(kode) {
+  var url = ambilNilai('tplUrl');
+  if (!url) { tandaiGalat(el('tplUrl'), 'URL wajib diisi.'); return; }
+  var btn = el('btnHubungkan');
+  tombolSibuk(btn, true, 'Memindai placeholder…');
+  kirim('pindaiTemplateDoc', { kodeJenis: kode, docUrl: url }, APP.batasWaktuUnggah).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat', 9000); return; }
+    upsertLokal('templateDoc', r.data, 'master');
+    tutupModal();
+    toast(r.message, 'sukses', 6000);
+    setelahTemplateBerubah(kode);
+    tampilkanHasilPindai(kode, r);
+  });
+}
+
+function pindaiUlang(kode, btn) {
+  var t = templateUntuk(kode);
+  if (!t) return;
+  tombolSibuk(btn, true, '');
+  kirim('pindaiTemplateDoc', { kodeJenis: kode, docUrl: t.docUrl }, APP.batasWaktuUnggah).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat', 9000); return; }
+    upsertLokal('templateDoc', r.data, 'master');
+    toast(r.message, 'sukses');
+    setelahTemplateBerubah(kode);
+    tampilkanHasilPindai(kode, r);
+  });
+}
+
+function tampilkanHasilPindai(kode, r) {
+  var bid = bidangUntuk(kode);
+  var isian = bid.filter(function (b) { return b.sumber !== 'sistem'; });
+  var oto = bid.filter(function (b) { return b.sumber === 'sistem'; });
+  bukaModal({
+    judul: 'Hasil Pindai Template',
+    sub: (r.data.namaTemplate || '') + ' · ' + bid.length + ' placeholder',
+    isi:
+      ((r.peringatan || []).length ? '<div class="tumpuk g8 mb16">' + r.peringatan.map(function (p) {
+        return '<div class="baris g8" style="background:var(--warn-bg);color:var(--warn-fg);padding:10px 12px;' +
+          'border-radius:var(--r-md);font-size:12.5px"><i class="bi bi-exclamation-triangle"></i><span>' + esc(p) + '</span></div>';
+      }).join('') + '</div>' : '') +
+      '<div class="label-kecil mb8">Menjadi kolom isian di generator (' + isian.length + ')</div>' +
+      '<div class="tumpuk g6 mb16">' + isian.map(function (b) {
+        return '<div class="baris g8 bungkus"><span class="chip-nomor">{{' + esc(b.kunci) + '}}</span>' +
+          '<span class="tx-md">' + esc(b.label) + '</span><span class="lencana neut">' + esc(namaTipe(b.tipe)) + '</span>' +
+          (b.wajib ? '<span class="lencana emas">Wajib</span>' : '') + '</div>';
+      }).join('') + '</div>' +
+      '<div class="label-kecil mb8">Diisi otomatis (' + oto.length + ')</div>' +
+      '<div class="baris g6 bungkus">' + oto.map(function (b) {
+        return '<span class="chip-nomor" title="' + esc(b.label) + '">{{' + esc(b.kunci) + '}}</span>';
+      }).join('') + '</div>',
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Selesai</button>' +
+          '<button class="btn btn-utama" onclick="tutupModal();bukaAturKolom(\'' + esc(kode) + '\')">' +
+          '<i class="bi bi-sliders"></i> Atur Label &amp; Sifat Kolom</button>'
+  });
+}
+
+function namaTipe(t) {
+  return { teks: 'Teks singkat', area: 'Teks multi-baris', naskah: 'Naskah (editor)', tanggal: 'Tanggal',
+           angka: 'Angka', otomatis: 'Otomatis' }[t] || t;
+}
+
+var UBAH_TIPE_BAKU = { TUJUAN: ['teks', 'area'], LAMPIRAN: ['teks', 'area'] };
+
+function bukaAturKolom(kode) {
+  var t = templateUntuk(kode);
+  if (!t) { toast('Template belum dihubungkan.', 'peringatan'); return; }
+  var bid = bidangUntuk(kode).filter(function (b) { return b.sumber !== 'sistem'; })
+    .sort(function (a, b) { return (Number(a.urutan) || 0) - (Number(b.urutan) || 0); });
+
+  var baris = bid.map(function (b, i) {
+    var pilihanTipe = b.sumber === 'kustom' ? ['teks', 'area', 'naskah', 'tanggal', 'angka']
+                                             : (UBAH_TIPE_BAKU[b.kunci] || [b.tipe]);
+    var kunciWajib = b.kunci === 'PERIHAL' || b.kunci === 'ISI';
+    return '<tr data-kunci="' + esc(b.kunci) + '">' +
+      '<td data-label="Placeholder"><span class="chip-nomor">{{' + esc(b.kunci) + '}}</span>' +
+      (b.sumber === 'baku' ? '<div class="t-sub">kolom baku</div>' : '') + '</td>' +
+      '<td data-label="Label"><input type="text" class="ak-label" value="' + esc(b.label) + '" maxlength="80"></td>' +
+      '<td data-label="Tipe"><select class="ak-tipe"' + (pilihanTipe.length < 2 ? ' disabled' : '') + '>' +
+        pilihanTipe.map(function (p) { return '<option value="' + p + '"' + (p === b.tipe ? ' selected' : '') + '>' + namaTipe(p) + '</option>'; }).join('') +
+      '</select></td>' +
+      '<td data-label="Wajib"><label class="saklar"><input type="checkbox" class="ak-wajib"' + (b.wajib ? ' checked' : '') +
+        (kunciWajib ? ' disabled' : '') + '><span class="track"></span></label></td>' +
+      '<td data-label="Urutan"><input type="number" class="ak-urut" value="' + (Number(b.urutan) || i + 1) + '" min="0" max="99" style="width:70px"></td>' +
+      '<td data-label="Petunjuk"><input type="text" class="ak-petunjuk" value="' + esc(b.petunjuk || '') + '" maxlength="160" placeholder="opsional"></td>' +
+      '</tr>';
+  }).join('');
+
+  bukaModal({
+    lebar: true,
+    judul: 'Atur Kolom Isian — ' + kode,
+    sub: 'Label, tipe masukan, dan sifat wajib kolom yang tampil di generator untuk template ini.',
+    isi: '<div class="tabel-bungkus"><table class="data responsif tabel-atur"><thead><tr>' +
+      '<th>Placeholder</th><th>Label Kolom</th><th>Tipe</th><th>Wajib</th><th>Urutan</th><th>Petunjuk Pengisian</th>' +
+      '</tr></thead><tbody>' + (baris || '<tr><td colspan="6">Tidak ada kolom isian.</td></tr>') + '</tbody></table></div>' +
+      '<div class="tx-sm tx-3 mt12"><i class="bi bi-info-circle"></i> <b>Naskah (editor)</b> = paragraf panjang rata kanan-kiri ' +
+      'dengan daftar & tabel · <b>Teks multi-baris</b> = setiap baris jadi paragraf (mis. alamat tujuan) · ' +
+      '<b>Tanggal</b> dicetak format Indonesia (23 September 2026).</div>',
+    kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
+          '<button class="btn btn-utama" id="btnAturKolom" onclick="simpanAturKolom(\'' + esc(kode) + '\')">' +
+          '<i class="bi bi-save"></i> Simpan Konfigurasi</button>'
+  });
+}
+
+function simpanAturKolom(kode) {
+  var data = $$('.tabel-atur tbody tr[data-kunci]').map(function (tr) {
+    return {
+      kunci: tr.dataset.kunci,
+      label: $('.ak-label', tr).value.trim(),
+      tipe: $('.ak-tipe', tr).value,
+      wajib: $('.ak-wajib', tr).checked,
+      urutan: Number($('.ak-urut', tr).value) || 0,
+      petunjuk: $('.ak-petunjuk', tr).value.trim()
+    };
+  });
+  var btn = el('btnAturKolom');
+  tombolSibuk(btn, true, 'Menyimpan…');
+  kirim('simpanBidangTemplate', { kodeJenis: kode, bidang: JSON.stringify(data) }).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+    upsertLokal('templateDoc', r.data, 'master');
+    tutupModal();
+    toast(r.message, 'sukses');
+    setelahTemplateBerubah(kode);
+  });
+}
+
+function siapkanTemplate() {
+  var btn = el('btnSiapkanTpl');
+  tombolSibuk(btn, true, 'Membuat template…');
+  kirim('siapkanTemplateDoc', {}, APP.batasWaktuUnggah).then(function (r) {
+    tombolSibuk(btn, false);
+    if (!r.success) { toast(r.message, 'galat'); return; }
+    toast(r.message, 'sukses');
+    kirim('refreshModul', { modul: 'templateDoc' }).then(function (r2) {
+      if (r2.success) Adm.boot.master.templateDoc = r2.data;
+      setelahTemplateBerubah(null);
+    });
+  });
+}
+
+function buatUlangTemplate(kode) {
+  konfirmasi({
+    judul: 'Buat Template Starter',
+    pesan: 'Sistem membuat template starter bawaan untuk jenis <b>' + esc(kode) + '</b>. Anda tetap dapat ' +
+           'menggantinya dengan template instansi kapan saja melalui tombol <b>Hubungkan</b>.',
+    ya: 'Ya, Buat Starter'
+  }).then(function (ya) {
+    if (!ya) return;
+    toast('Membuat template starter…', 'info', 2500);
+    kirim('buatUlangTemplateDoc', { kodeJenis: kode }, APP.batasWaktuUnggah).then(function (r) {
+      if (!r.success) { toast(r.message, 'galat'); return; }
+      upsertLokal('templateDoc', r.data, 'master');
+      toast(r.message, 'sukses');
+      setelahTemplateBerubah(kode);
+    });
+  });
 }
 
 /* ── Tab generik: master data ───────────────────────────────────── */
@@ -720,7 +1004,6 @@ function tabMaster(w, master) {
       }
     }) + '</div></div>';
 
-  /* Unggah spesimen TTE khusus tab pejabat */
   if (master === 'pejabat') {
     w.innerHTML += '<div class="kartu mt20"><div class="kartu-kepala"><div>' +
       '<h3 style="font-size:16px">Unggah Spesimen TTE Transparan</h3>' +
@@ -757,7 +1040,7 @@ function bukaFormMaster(master, id) {
 
   bukaModal({
     judul: (id ? 'Ubah ' : 'Tambah ') + skema.judul,
-    sub: skema.desk,
+    sub: skema.desk.replace(/<[^>]+>/g, ''),
     isi: isi,
     lebar: master === 'templateDokumen',
     kaki: '<button class="btn btn-garis" onclick="tutupModal()">Batal</button>' +
@@ -776,19 +1059,21 @@ function bidangMaster(b, rec) {
   if (b.t === 'pilih') return bidangPilih({ id: 'ms_' + b.id, label: b.l, wajib: b.wajib, opsi: b.opsi,
     nilai: v, bantu: b.bantu });
   return bidangTeks({ id: 'ms_' + b.id, label: b.l, wajib: b.wajib, tipe: b.t || 'text',
-    nilai: v, placeholder: b.ph, bantu: b.bantu });
+    nilai: v, placeholder: b.ph, bantu: b.bantu, otomatis: b.t === 'password' ? 'new-password' : null });
 }
 
 function simpanMaster(master, id) {
   var skema = MASTER_SKEMA[master];
   var aturan = skema.bidang.filter(function (b) { return b.wajib; })
     .map(function (b) { return { id: 'ms_' + b.id, wajib: true, email: b.t === 'email' }; });
+  if (master === 'pengguna' && !id) aturan.push({ id: 'ms_password', wajib: true, pesan: 'Kata sandi wajib untuk akun baru.' });
+  if (master === 'pengguna' && ambilNilai('ms_password')) aturan.push({ id: 'ms_password', min: 8 });
   if (!validasiForm(null, aturan)) return;
 
   var rec = { id: id || '' };
   skema.bidang.forEach(function (b) {
     var v = ambilNilai('ms_' + b.id);
-    if (b.id === 'password' && !v) return;   // jangan timpa kata sandi bila dikosongkan
+    if (b.id === 'password' && !v) return;
     rec[b.id] = v;
   });
 
@@ -800,6 +1085,8 @@ function simpanMaster(master, id) {
     if (!r.success) { toast(r.message, 'galat'); return; }
     tutupModal();
     toast(r.message, 'sukses');
+    upsertLokal(master, r.data, 'master');
+    if (Adm.modulAktif === 'pengaturan') gambarTabPengaturan();
     segarkanMaster(master);
   });
 }
@@ -812,18 +1099,24 @@ function hapusMaster(master, id) {
     ya: 'Ya, Hapus', bahaya: true
   }).then(function (ya) {
     if (!ya) return;
+    var cadangan = hapusLokal(master, id, 'master');
+    if (Adm.modulAktif === 'pengaturan') gambarTabPengaturan();
     kirim('masterHapus', { master: master, id: id }).then(function (r) {
-      if (!r.success) { toast(r.message, 'galat'); return; }
+      if (!r.success) {
+        if (cadangan) Adm.boot.master[master].splice(cadangan.indeks, 0, cadangan.rec);
+        if (Adm.modulAktif === 'pengaturan') gambarTabPengaturan();
+        toast(r.message, 'galat');
+        return;
+      }
       toast(r.message, 'sukses');
-      segarkanMaster(master);
     });
   });
 }
 
 function segarkanMaster(master) {
   return kirim('refreshModul', { modul: master }).then(function (r) {
-    if (r.success) Adm.boot.master[master] = r.data;
-    if (Adm.modulAktif === 'pengaturan') gambarTabPengaturan();
+    if (r.success) { Adm.boot.master[master] = r.data; Sesi.simpanBoot(Adm.boot); }
+    if (Adm.modulAktif === 'pengaturan' && !_tumpukanModal.length) gambarTabPengaturan();
     return r;
   });
 }
@@ -864,7 +1157,8 @@ function simpanSpesimen() {
       if (!r2.success) { toast(r2.message, 'galat'); return; }
       window.__spesimen = null;
       toast('Spesimen tanda tangan tersimpan dan TTE diaktifkan untuk pejabat tersebut.', 'sukses');
-      segarkanMaster('pejabat');
+      upsertLokal('pejabat', r2.data, 'master');
+      gambarTabPengaturan();
     });
   });
 }
@@ -885,7 +1179,6 @@ function pilihLogo(input) {
 
   bacaBerkasBase64(f).then(function (b64) {
     window.__logoSementara = { nama: f.name, mime: f.type, base64: b64 };
-    // Pratinjau langsung sebelum diunggah — pengguna melihat hasilnya seketika
     el('logoThumb').innerHTML = '<img src="data:' + f.type + ';base64,' + b64 + '" alt="Pratinjau logo">';
     el('logoNama').textContent = f.name + ' · ' + formatUkuran(f.size) + ' — belum diunggah.';
     el('btnLogo').disabled = false;

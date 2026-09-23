@@ -1,0 +1,141 @@
+/* ═══════════════════════════════════════════════════════════════════
+   e-SURAT v4.2 — css/upgrade.css
+   Tambahan gaya: popup formulir, kartu layanan, generator dinamis,
+   dan transisi yang lebih cepat. Dimuat SETELAH style.css.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Transisi dipercepat (perpindahan terasa instan) ─────────────── */
+.lapisan.aktif { animation-duration: .14s; }
+.modal { animation-duration: .14s; }
+.toast { animation-duration: .16s; }
+.btn:hover:not(:disabled) { transform: none; }
+.btn-utama:hover:not(:disabled), .btn-navy:hover:not(:disabled) { transform: translateY(-1px); }
+
+.g20 { gap: 20px; }
+.jebakan { position: absolute !important; left: -9999px !important; width: 1px; height: 1px; opacity: 0; }
+@media (max-width: 560px) { .sembunyi-hp { display: none !important; } }
+
+/* ── Kartu layanan portal ────────────────────────────────────────── */
+.layanan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.layanan-kartu {
+  position: relative; display: flex; flex-direction: column; gap: 14px; text-align: left;
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--r-xl);
+  padding: 20px; cursor: pointer; font-family: var(--font); color: var(--ink);
+  transition: border-color var(--transisi), box-shadow var(--transisi), transform var(--transisi);
+}
+.layanan-kartu:hover { border-color: var(--amber); box-shadow: var(--sh-2); transform: translateY(-2px); }
+.layanan-kartu:focus-visible { outline: 3px solid rgba(245,166,35,.45); outline-offset: 2px; }
+.layanan-kartu .lk-ikon {
+  width: 48px; height: 48px; border-radius: var(--r-lg); display: flex; align-items: center; justify-content: center;
+  font-size: 22px; background: var(--navy); color: var(--amber);
+}
+.layanan-kartu .lk-ikon.emas { background: var(--amber); color: var(--navy-dark); }
+.layanan-kartu .lk-tag { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--warn-fg); }
+.layanan-kartu .lk-nama { font-size: 17px; font-weight: 700; margin: 3px 0 5px; }
+.layanan-kartu .lk-desk { font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.layanan-kartu .lk-aksi {
+  display: flex; align-items: center; justify-content: space-between; margin-top: auto;
+  padding-top: 12px; border-top: 1px dashed var(--border); font-weight: 600; font-size: 13.5px; color: var(--navy);
+}
+body.gelap .layanan-kartu .lk-aksi { color: var(--amber); }
+.layanan-kartu:hover .lk-aksi i { transform: translateX(4px); }
+.layanan-kartu .lk-aksi i { transition: transform var(--transisi); }
+.layanan-kartu .lk-draf {
+  position: absolute; top: 14px; right: 14px; font-size: 11px; font-weight: 600;
+  background: var(--ok-bg); color: var(--ok-fg); padding: 3px 9px; border-radius: var(--r-full);
+}
+
+#tabLacak { transition: box-shadow .3s ease, border-color .3s ease; }
+#tabLacak.sorot { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(245,166,35,.18); }
+
+/* ── Popup formulir pengajuan ────────────────────────────────────── */
+body.pf-buka { overflow: hidden !important; }
+.pf-tirai {
+  position: fixed; inset: 0; z-index: 7000; display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(15,30,48,.62); backdrop-filter: blur(4px);
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .14s ease, visibility .14s;
+}
+.pf-tirai.tampil { opacity: 1; visibility: visible; pointer-events: auto; }
+.pf-kotak {
+  width: min(980px, 100%); height: min(92vh, 100%); display: flex; flex-direction: column;
+  background: var(--canvas); border-radius: var(--r-xl); box-shadow: var(--sh-3); overflow: hidden;
+  transform: translateY(10px) scale(.985); transition: transform .16s cubic-bezier(.4,0,.2,1);
+}
+.pf-tirai.tampil .pf-kotak { transform: none; }
+.pf-kepala {
+  display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.pf-kepala h3 { font-size: 17px; }
+.pf-ikon {
+  width: 42px; height: 42px; border-radius: var(--r-lg); flex-shrink: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 19px; background: var(--navy); color: var(--amber);
+}
+.pf-ikon.emas { background: var(--amber); color: var(--navy-dark); }
+.pf-label { font-size: 10.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.pf-progres { height: 3px; background: var(--surface-3); }
+.pf-progres i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--amber), #F7C15E); transition: width .25s ease; }
+.pf-isi { flex: 1; overflow-y: auto; padding: 18px 20px 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.pf-isi form {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl);
+  padding: 20px 20px 0; margin-bottom: 18px;
+}
+.pf-isi .langkah { margin-bottom: 14px; }
+.pf-kaki {
+  position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 8px -20px 0; padding: 14px 20px; background: var(--surface);
+  border-top: 1px solid var(--border); border-radius: 0 0 var(--r-xl) var(--r-xl);
+}
+.pf-kaki .isi-sisa { flex: 1; }
+
+@media (max-width: 760px) {
+  .pf-tirai { padding: 0; align-items: stretch; }
+  .pf-kotak { height: 100%; width: 100%; border-radius: 0; }
+  .pf-isi { padding: 12px 12px 0; }
+  .pf-isi form { padding: 16px 14px 0; border-radius: var(--r-lg); }
+  .pf-kaki { margin: 8px -14px 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
+  .pf-kaki .btn { flex: 1 1 auto; }
+  .pf-isi .langkah { display: none; }
+}
+
+/* ── Perbaikan berkas (status Perlu Revisi) ──────────────────────── */
+.kotak-revisi {
+  background: var(--warn-bg); color: var(--warn-fg); border: 1px solid rgba(245,166,35,.45);
+  border-radius: var(--r-lg); padding: 13px 15px;
+}
+
+/* ── Editor naskah ───────────────────────────────────────────────── */
+.editor-isi p { margin: 0 0 6px; text-align: justify; }
+.editor-isi div { text-align: justify; }
+.editor-kaki {
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 11px; color: var(--ink-3);
+  background: var(--surface-2); border-top: 1px solid var(--border);
+}
+.bidang.galat .editor { border-color: #DC2626; }
+
+/* ── Generator dinamis & template ────────────────────────────────── */
+.info-tpl {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--info-bg); color: var(--info-fg); padding: 12px 14px; border-radius: var(--r-lg);
+}
+.info-tpl > i { font-size: 20px; }
+.info-tpl.peringatan { background: var(--warn-bg); color: var(--warn-fg); }
+.info-tpl .btn-garis { background: rgba(255,255,255,.55); }
+body.gelap .info-tpl .btn-garis { background: transparent; }
+
+.alur-tpl { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.alur-tpl-item {
+  display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: var(--r-lg);
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.alur-tpl-no {
+  width: 34px; height: 34px; flex-shrink: 0; border-radius: var(--r-md); display: flex; align-items: center;
+  justify-content: center; background: var(--navy); color: var(--amber); font-size: 15px;
+}
+.tabel-atur input[type=text], .tabel-atur input[type=number], .tabel-atur select { padding: 7px 9px; font-size: 13px; }
+.tabel-atur td { vertical-align: middle; }
+
+/* ── Indikator sinkron latar belakang ────────────────────────────── */
+.tb-sinkron { display: inline-flex; align-items: center; color: var(--ink-3); padding: 0 4px; }
+.tb-sinkron[hidden] { display: none; }
+.tb-sinkron .spinner { width: 13px; height: 13px; }

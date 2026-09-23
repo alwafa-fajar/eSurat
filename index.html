@@ -7,11 +7,17 @@
 <meta name="theme-color" content="#1E3A5F">
 <title>e-SURAT — Sistem Persuratan &amp; Kearsipan Digital</title>
 
+<!-- Buka koneksi ke server lebih awal → permintaan pertama lebih cepat -->
+<link rel="preconnect" href="https://script.google.com" crossorigin>
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<link rel="dns-prefetch" href="https://script.googleusercontent.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/upgrade.css">
 </head>
 <body>
 
@@ -73,266 +79,56 @@
       <div class="hero-titik" id="heroTitik"></div>
     </div>
 
-    <!-- Pemilih layanan -->
-    <div class="pub-tab" role="tablist">
-      <button class="aktif" data-tab="mahasiswa" onclick="gantiTabPublik('mahasiswa')" role="tab">
-        <i class="bi bi-mortarboard"></i> Pengajuan Mahasiswa
-      </button>
-      <button data-tab="dosen" onclick="gantiTabPublik('dosen')" role="tab">
-        <i class="bi bi-person-badge"></i> Pengajuan Dosen
-      </button>
-      <button data-tab="lacak" onclick="gantiTabPublik('lacak')" role="tab">
-        <i class="bi bi-search"></i> Lacak Status
-      </button>
-    </div>
-
     <div class="pub-grid">
-      <div>
+      <div class="tumpuk g20">
 
-        <!-- ── FORM MAHASISWA ─────────────────────────────────── -->
-        <div id="tabMahasiswa" class="tab-panel">
-          <div class="langkah" id="langkahMhs">
-            <div class="lk aktif" data-lk="1"><span class="lk-num">1</span><div><div class="lk-label">Langkah 01</div><div class="lk-judul">Identitas Mahasiswa</div></div></div>
-            <div class="lk" data-lk="2"><span class="lk-num">2</span><div><div class="lk-label">Langkah 02</div><div class="lk-judul">Skema &amp; Alasan</div></div></div>
-            <div class="lk" data-lk="3"><span class="lk-num">3</span><div><div class="lk-label">Langkah 03</div><div class="lk-judul">Unggah Berkas</div></div></div>
+        <!-- ── PILIH LAYANAN — formulir dibuka sebagai popup ───── -->
+        <div>
+          <div class="seksi-kepala">
+            <span class="seksi-bar emas"></span>
+            <h3>Pilih Layanan Pengajuan</h3>
+            <span class="s-tanda">Formulir terbuka sebagai jendela fokus</span>
           </div>
-
-          <form id="formMhs" class="kartu" novalidate>
-            <div class="seksi">
-              <div class="seksi-kepala">
-                <span class="seksi-bar"></span>
-                <h3>1. Data Identitas Mahasiswa</h3>
-                <span class="lencana emas">Wajib Diisi</span>
+          <div class="layanan-grid">
+            <button type="button" class="layanan-kartu" onclick="bukaFormPengajuan('mahasiswa')">
+              <div class="lk-ikon"><i class="bi bi-mortarboard"></i></div>
+              <div class="lk-teks">
+                <div class="lk-tag">Mahasiswa</div>
+                <div class="lk-nama">Keringanan UKT &amp; Asrama</div>
+                <div class="lk-desk">Dispensasi cicilan, potongan UKT, keringanan asrama, dan penundaan pembayaran.</div>
               </div>
-              <div class="bidang">
-                <label for="mhsNama">Nama Lengkap (Sesuai KTP / KTM) <span class="wajib">*</span></label>
-                <input type="text" id="mhsNama" name="nama" placeholder="Contoh: Ahmad Zaky Ramadhan" autocomplete="name" required>
-                <div class="pesan-galat">Nama lengkap wajib diisi.</div>
+              <div class="lk-aksi"><span>Isi Formulir</span><i class="bi bi-arrow-right"></i></div>
+              <div class="lk-draf sembunyi" id="drafInfoMhs"><i class="bi bi-cloud-check"></i> Draf tersimpan</div>
+            </button>
+            <button type="button" class="layanan-kartu" onclick="bukaFormPengajuan('dosen')">
+              <div class="lk-ikon emas"><i class="bi bi-person-badge"></i></div>
+              <div class="lk-teks">
+                <div class="lk-tag">Dosen</div>
+                <div class="lk-nama">Insentif Karya Ilmiah</div>
+                <div class="lk-desk">Publikasi jurnal terindeks, prosiding, HKI/paten, dan buku ber-ISBN.</div>
               </div>
-              <div class="grid-2">
-                <div class="bidang">
-                  <label for="mhsNim">Nomor Induk Mahasiswa (NIM) <span class="wajib">*</span></label>
-                  <input type="text" id="mhsNim" name="nim" placeholder="2023081014" inputmode="numeric" required>
-                  <div class="pesan-galat">NIM wajib diisi.</div>
-                </div>
-                <div class="bidang">
-                  <label for="mhsProdi">Program Studi <span class="wajib">*</span></label>
-                  <select id="mhsProdi" name="prodi" required><option value="">— Pilih program studi —</option></select>
-                  <div class="pesan-galat">Program studi wajib dipilih.</div>
-                </div>
-              </div>
-              <div class="grid-2">
-                <div class="bidang">
-                  <label for="mhsSemester">Semester Tempuh Saat Ini <span class="wajib">*</span></label>
-                  <select id="mhsSemester" name="semester" required><option value="">— Pilih semester —</option></select>
-                  <div class="pesan-galat">Semester wajib dipilih.</div>
-                </div>
-                <div class="bidang">
-                  <label for="mhsWa">No. WhatsApp Aktif <span class="wajib">*</span></label>
-                  <div class="input-gabung">
-                    <span class="awalan">+62</span>
-                    <input type="tel" id="mhsWa" name="whatsapp" placeholder="812-9842-1102" inputmode="tel" required>
-                  </div>
-                  <div class="bantu"><i class="bi bi-bell"></i> Pembaruan status dikirim otomatis ke nomor ini.</div>
-                  <div class="pesan-galat">Nomor WhatsApp wajib diisi.</div>
-                </div>
-              </div>
-              <div class="bidang">
-                <label for="mhsEmail">Surel Akademik Aktif <span class="wajib">*</span></label>
-                <input type="email" id="mhsEmail" name="email" placeholder="nama@stis-alwafa.ac.id" autocomplete="email" required>
-                <div class="pesan-galat">Format surel tidak valid.</div>
-              </div>
-            </div>
-
-            <div class="seksi">
-              <div class="seksi-kepala">
-                <span class="seksi-bar emas"></span>
-                <h3>2. Pilihan Skema Keringanan Finansial</h3>
-                <span class="s-tanda">Pilih satu opsi prioritas</span>
-              </div>
-              <div class="pilihan-grid" id="mhsSkema"></div>
-              <div class="bidang mt16">
-                <label for="mhsAlasan">Alasan / Urgensi Permohonan <span class="wajib">*</span></label>
-                <textarea id="mhsAlasan" name="alasan" rows="4" required
-                  placeholder="Uraikan kondisi yang mendasari permohonan secara jujur dan ringkas (minimal 20 karakter)."></textarea>
-                <div class="bantu"><span id="mhsAlasanHitung">0</span> karakter · minimal 20 karakter</div>
-                <div class="pesan-galat">Uraian alasan minimal 20 karakter.</div>
-              </div>
-            </div>
-
-            <div class="seksi">
-              <div class="seksi-kepala">
-                <span class="seksi-bar"></span>
-                <h3>3. Unggah Berkas Persyaratan Digital</h3>
-                <span class="s-tanda" id="mhsFormatInfo">Format PDF/JPG maks. 2 MB per berkas</span>
-              </div>
-              <div class="tumpuk g10" id="mhsBerkas"></div>
-              <div class="jatuhkan mt12" id="mhsJatuhkan">
-                <i class="bi bi-cloud-arrow-up j-ikon"></i>
-                <div class="j-judul">Tarik &amp; jatuhkan lampiran pendukung lainnya di sini</div>
-                <div class="j-desk">Scan Kartu Keluarga, KTP Orang Tua, atau Piagam Prestasi (opsional)</div>
-              </div>
-              <div class="tumpuk g8 mt12" id="mhsBerkasTambahan"></div>
-            </div>
-
-            <div class="garis"></div>
-            <div class="baris antara bungkus g12">
-              <div class="tx-sm tx-3 baris g8">
-                <i class="bi bi-shield-lock"></i> Data terlindungi protokol integritas arsip e-SURAT
-              </div>
-              <div class="baris g8 bungkus">
-                <button type="button" class="btn btn-garis" onclick="simpanDraf('mhs')">
-                  <i class="bi bi-save"></i> Simpan Sementara
-                </button>
-                <button type="submit" class="btn btn-utama btn-lg">
-                  <i class="bi bi-send"></i> Kirim Pengajuan Sekarang
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        <!-- ── FORM DOSEN ─────────────────────────────────────── -->
-        <div id="tabDosen" class="tab-panel sembunyi">
-          <div class="langkah" id="langkahDsn">
-            <div class="lk aktif" data-lk="1"><span class="lk-num">1</span><div><div class="lk-label">Langkah 01</div><div class="lk-judul">Identitas &amp; Homebase</div></div></div>
-            <div class="lk" data-lk="2"><span class="lk-num">2</span><div><div class="lk-label">Langkah 02</div><div class="lk-judul">Detail Karya &amp; Kategori</div></div></div>
-            <div class="lk" data-lk="3"><span class="lk-num">3</span><div><div class="lk-label">Langkah 03</div><div class="lk-judul">Unggah Berkas &amp; Bukti</div></div></div>
+              <div class="lk-aksi"><span>Isi Formulir</span><i class="bi bi-arrow-right"></i></div>
+              <div class="lk-draf sembunyi" id="drafInfoDsn"><i class="bi bi-cloud-check"></i> Draf tersimpan</div>
+            </button>
           </div>
-
-          <form id="formDsn" class="kartu" novalidate>
-            <div class="seksi">
-              <div class="seksi-kepala">
-                <span class="seksi-bar"></span>
-                <h3>1. Identitas Akademik Pengusul</h3>
-                <span class="lencana info">Data PDDikti</span>
-              </div>
-              <div class="grid-2">
-                <div class="bidang">
-                  <label for="dsnNama">Nama Lengkap &amp; Gelar <span class="wajib">*</span></label>
-                  <input type="text" id="dsnNama" name="nama" placeholder="Dr. Hendra Saputra, M.Ag." required>
-                  <div class="pesan-galat">Nama lengkap wajib diisi.</div>
-                </div>
-                <div class="bidang">
-                  <label for="dsnNuptk">NIDN / NUPTK Pengusul <span class="wajib">*</span></label>
-                  <input type="text" id="dsnNuptk" name="nuptk" placeholder="2115048201" inputmode="numeric" required>
-                  <div class="pesan-galat">NIDN/NUPTK wajib diisi.</div>
-                </div>
-              </div>
-              <div class="grid-2">
-                <div class="bidang">
-                  <label for="dsnProdi">Program Studi / Homebase <span class="wajib">*</span></label>
-                  <select id="dsnProdi" name="prodi" required><option value="">— Pilih program studi —</option></select>
-                  <div class="pesan-galat">Program studi wajib dipilih.</div>
-                </div>
-                <div class="bidang">
-                  <label for="dsnJabfung">Jabatan Fungsional Akademik</label>
-                  <select id="dsnJabfung" name="jabatanFungsional">
-                    <option value="">— Pilih jabatan —</option>
-                    <option>Tenaga Pengajar</option>
-                    <option>Asisten Ahli</option>
-                    <option>Lektor</option>
-                    <option>Lektor Kepala</option>
-                    <option>Guru Besar / Profesor</option>
-                  </select>
-                </div>
-              </div>
-              <div class="grid-2">
-                <div class="bidang">
-                  <label for="dsnWa">No. WhatsApp Aktif <span class="wajib">*</span></label>
-                  <div class="input-gabung">
-                    <span class="awalan">+62</span>
-                    <input type="tel" id="dsnWa" name="whatsapp" placeholder="813-7729-1092" required>
-                  </div>
-                  <div class="pesan-galat">Nomor WhatsApp wajib diisi.</div>
-                </div>
-                <div class="bidang">
-                  <label for="dsnEmail">Surel Institusi Resmi <span class="wajib">*</span></label>
-                  <input type="email" id="dsnEmail" name="email" placeholder="nama@stis-alwafa.ac.id" required>
-                  <div class="pesan-galat">Format surel tidak valid.</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="seksi">
-              <div class="seksi-kepala">
-                <span class="seksi-bar emas"></span>
-                <h3>2. Klasifikasi &amp; Detail Karya Ilmiah</h3>
-              </div>
-              <div class="pilihan-grid" id="dsnKlasifikasi"></div>
-
-              <div class="bidang mt16">
-                <label for="dsnJudul">Judul Karya / Artikel Ilmiah Lengkap <span class="wajib">*</span></label>
-                <textarea id="dsnJudul" name="judulKarya" rows="2" required
-                  placeholder="Tuliskan judul lengkap sesuai naskah terbit."></textarea>
-                <div class="pesan-galat">Judul karya wajib diisi.</div>
-              </div>
-              <div class="grid-2">
-                <div class="bidang">
-                  <label for="dsnPenerbit">Nama Penerbit / Nama Jurnal</label>
-                  <input type="text" id="dsnPenerbit" name="penerbit" placeholder="Journal of Islamic Monetary Economics">
-                </div>
-                <div class="bidang">
-                  <label for="dsnVolume">Volume / Nomor / Halaman / Tahun Terbit</label>
-                  <input type="text" id="dsnVolume" name="volume" placeholder="Vol. 10 No. 2 (2026), Hal. 215-238">
-                </div>
-              </div>
-              <div class="bidang">
-                <label for="dsnDoi">DOI Publikasi / URL Repositori Penerbit Resmi</label>
-                <input type="url" id="dsnDoi" name="doi" placeholder="https://doi.org/10.21098/jimef.v10i2.1482">
-              </div>
-            </div>
-
-            <div class="seksi">
-              <div class="seksi-kepala">
-                <span class="seksi-bar"></span>
-                <h3>3. Berkas Pendukung &amp; Bukti Luaran</h3>
-                <span class="s-tanda" id="dsnFormatInfo">Format PDF/JPG maks. 2 MB per berkas</span>
-              </div>
-              <div class="tumpuk g10" id="dsnBerkas"></div>
-              <div class="jatuhkan mt12" id="dsnJatuhkan">
-                <i class="bi bi-cloud-arrow-up j-ikon"></i>
-                <div class="j-judul">Tarik &amp; jatuhkan lampiran pendukung lainnya di sini</div>
-                <div class="j-desk">Sertifikat HKI, Bukti Pembayaran APC, Kontrak Penelitian, atau Rekomendasi Dekan</div>
-              </div>
-              <div class="tumpuk g8 mt12" id="dsnBerkasTambahan"></div>
-            </div>
-
-            <div class="garis"></div>
-            <div class="baris antara bungkus g12">
-              <div class="tx-sm tx-3 baris g8">
-                <i class="bi bi-shield-lock"></i> Data terlindungi protokol integritas arsip e-SURAT
-              </div>
-              <div class="baris g8 bungkus">
-                <button type="button" class="btn btn-garis" onclick="simpanDraf('dsn')">
-                  <i class="bi bi-save"></i> Simpan Draf
-                </button>
-                <button type="submit" class="btn btn-utama btn-lg">
-                  <i class="bi bi-send"></i> Kirim Pengajuan Insentif
-                </button>
-              </div>
-            </div>
-          </form>
         </div>
 
         <!-- ── LACAK STATUS ───────────────────────────────────── -->
-        <div id="tabLacak" class="tab-panel sembunyi">
-          <div class="kartu">
-            <div class="seksi-kepala">
-              <span class="seksi-bar emas"></span>
-              <h3>Pelacakan Status Pengajuan</h3>
-            </div>
-            <p class="tx-2 tx-md">Masukkan nomor referensi yang Anda terima saat pengajuan dikirim untuk melihat
-              posisi verifikasi terkini beserta riwayat lengkapnya.</p>
-            <form id="formLacak" class="baris g10 bungkus mt16">
-              <div class="sisa" style="min-width:230px">
-                <input type="text" id="lacakNomor" class="mono" placeholder="REQ-MHS/2026/09-0042" required
-                  autocomplete="off" spellcheck="false">
-              </div>
-              <button type="submit" class="btn btn-navy"><i class="bi bi-search"></i> Lacak Status Sekarang</button>
-            </form>
-            <div id="lacakHasil" class="mt20"></div>
+        <div id="tabLacak" class="kartu">
+          <div class="seksi-kepala">
+            <span class="seksi-bar emas"></span>
+            <h3>Pelacakan Status Pengajuan</h3>
           </div>
+          <p class="tx-2 tx-md">Masukkan nomor referensi yang Anda terima saat pengajuan dikirim untuk melihat
+            posisi verifikasi terkini beserta riwayat lengkapnya.</p>
+          <form id="formLacak" class="baris g10 bungkus mt16">
+            <div class="sisa" style="min-width:230px">
+              <input type="text" id="lacakNomor" class="mono" placeholder="REQ-MHS/2026/09-0042" required
+                autocomplete="off" spellcheck="false">
+            </div>
+            <button type="submit" class="btn btn-navy"><i class="bi bi-search"></i> Lacak Status Sekarang</button>
+          </form>
+          <div id="lacakHasil" class="mt20"></div>
         </div>
 
       </div>
@@ -344,8 +140,258 @@
     <footer class="tgh tx-sm tx-3 mt24" style="padding:22px 0;border-top:1px solid var(--border)">
       <div id="pubFooterNama" class="tebal tx-2 mb4">e-SURAT</div>
       <div id="pubFooterAlamat"></div>
-      <div class="mt8">Sistem Persuratan &amp; Kearsipan Digital &middot; v4.1</div>
+      <div class="mt8">Sistem Persuratan &amp; Kearsipan Digital &middot; v4.2</div>
     </footer>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     POPUP FORMULIR PENGAJUAN (fokus, layar penuh di ponsel)
+     ═════════════════════════════════════════════════════════════════ -->
+<div id="popupForm" class="pf-tirai" aria-hidden="true">
+  <div class="pf-kotak" role="dialog" aria-modal="true" aria-labelledby="pfJudul">
+    <div class="pf-kepala">
+      <div class="pf-ikon" id="pfIkon"><i class="bi bi-mortarboard"></i></div>
+      <div class="sisa">
+        <div class="pf-label" id="pfLabel">Formulir Pengajuan Resmi</div>
+        <h3 id="pfJudul">Pengajuan</h3>
+      </div>
+      <button type="button" class="btn btn-hantu btn-sm sembunyi-hp" onclick="bukaPanduan()">
+        <i class="bi bi-journal-text"></i> Panduan
+      </button>
+      <button type="button" class="modal-tutup" onclick="tutupFormPengajuan()" aria-label="Tutup formulir">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="pf-progres" title="Kelengkapan formulir"><i id="pfProgres"></i></div>
+
+    <div class="pf-isi" id="pfIsi">
+
+      <!-- ── FORM MAHASISWA ─────────────────────────────────── -->
+      <div id="tabMahasiswa" class="tab-panel sembunyi">
+        <div class="langkah" id="langkahMhs">
+          <div class="lk aktif" data-lk="1"><span class="lk-num">1</span><div><div class="lk-label">Langkah 01</div><div class="lk-judul">Identitas Mahasiswa</div></div></div>
+          <div class="lk" data-lk="2"><span class="lk-num">2</span><div><div class="lk-label">Langkah 02</div><div class="lk-judul">Skema &amp; Alasan</div></div></div>
+          <div class="lk" data-lk="3"><span class="lk-num">3</span><div><div class="lk-label">Langkah 03</div><div class="lk-judul">Unggah Berkas</div></div></div>
+        </div>
+
+        <form id="formMhs" novalidate>
+          <input type="text" name="situs" id="mhsSitus" class="jebakan" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <div class="seksi">
+            <div class="seksi-kepala">
+              <span class="seksi-bar"></span>
+              <h3>1. Data Identitas Mahasiswa</h3>
+              <span class="lencana emas">Wajib Diisi</span>
+            </div>
+            <div class="bidang">
+              <label for="mhsNama">Nama Lengkap (Sesuai KTP / KTM) <span class="wajib">*</span></label>
+              <input type="text" id="mhsNama" name="nama" placeholder="Contoh: Ahmad Zaky Ramadhan" autocomplete="name" required>
+              <div class="pesan-galat">Nama lengkap wajib diisi.</div>
+            </div>
+            <div class="grid-2">
+              <div class="bidang">
+                <label for="mhsNim">Nomor Induk Mahasiswa (NIM) <span class="wajib">*</span></label>
+                <input type="text" id="mhsNim" name="nim" placeholder="2023081014" inputmode="numeric" required>
+                <div class="pesan-galat">NIM wajib diisi.</div>
+              </div>
+              <div class="bidang">
+                <label for="mhsProdi">Program Studi <span class="wajib">*</span></label>
+                <select id="mhsProdi" name="prodi" required><option value="">— Pilih program studi —</option></select>
+                <div class="pesan-galat">Program studi wajib dipilih.</div>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="bidang">
+                <label for="mhsSemester">Semester Tempuh Saat Ini <span class="wajib">*</span></label>
+                <select id="mhsSemester" name="semester" required><option value="">— Pilih semester —</option></select>
+                <div class="pesan-galat">Semester wajib dipilih.</div>
+              </div>
+              <div class="bidang">
+                <label for="mhsWa">No. WhatsApp Aktif <span class="wajib">*</span></label>
+                <div class="input-gabung">
+                  <span class="awalan">+62</span>
+                  <input type="tel" id="mhsWa" name="whatsapp" placeholder="812-9842-1102" inputmode="tel" required>
+                </div>
+                <div class="bantu"><i class="bi bi-bell"></i> Pembaruan status dikirim otomatis ke nomor ini.</div>
+                <div class="pesan-galat">Nomor WhatsApp wajib diisi.</div>
+              </div>
+            </div>
+            <div class="bidang">
+              <label for="mhsEmail">Surel Akademik Aktif <span class="wajib">*</span></label>
+              <input type="email" id="mhsEmail" name="email" placeholder="nama@stis-alwafa.ac.id" autocomplete="email" required>
+              <div class="pesan-galat">Format surel tidak valid.</div>
+            </div>
+          </div>
+
+          <div class="seksi">
+            <div class="seksi-kepala">
+              <span class="seksi-bar emas"></span>
+              <h3>2. Pilihan Skema Keringanan Finansial</h3>
+              <span class="s-tanda">Pilih satu opsi prioritas</span>
+            </div>
+            <div class="pilihan-grid" id="mhsSkema"></div>
+            <div class="bidang mt16">
+              <label for="mhsAlasan">Alasan / Urgensi Permohonan <span class="wajib">*</span></label>
+              <textarea id="mhsAlasan" name="alasan" rows="4" required
+                placeholder="Uraikan kondisi yang mendasari permohonan secara jujur dan ringkas (minimal 20 karakter)."></textarea>
+              <div class="bantu"><span id="mhsAlasanHitung">0</span> karakter · minimal 20 karakter</div>
+              <div class="pesan-galat">Uraian alasan minimal 20 karakter.</div>
+            </div>
+          </div>
+
+          <div class="seksi">
+            <div class="seksi-kepala">
+              <span class="seksi-bar"></span>
+              <h3>3. Unggah Berkas Persyaratan Digital</h3>
+              <span class="s-tanda" id="mhsFormatInfo">Format PDF/JPG maks. 2 MB per berkas</span>
+            </div>
+            <div class="tumpuk g10" id="mhsBerkas"></div>
+            <div class="jatuhkan mt12" id="mhsJatuhkan">
+              <i class="bi bi-cloud-arrow-up j-ikon"></i>
+              <div class="j-judul">Tarik &amp; jatuhkan lampiran pendukung lainnya di sini</div>
+              <div class="j-desk">Scan Kartu Keluarga, KTP Orang Tua, atau Piagam Prestasi (opsional)</div>
+            </div>
+            <div class="tumpuk g8 mt12" id="mhsBerkasTambahan"></div>
+          </div>
+
+          <div class="pf-kaki">
+            <div class="tx-sm tx-3 baris g8 sembunyi-hp">
+              <i class="bi bi-shield-lock"></i> Berkas pribadi tidak dibagikan publik
+            </div>
+            <div class="isi-sisa"></div>
+            <button type="button" class="btn btn-garis" onclick="simpanDraf('mhs')">
+              <i class="bi bi-save"></i> Simpan Draf
+            </button>
+            <button type="submit" class="btn btn-utama">
+              <i class="bi bi-send"></i> Kirim Pengajuan
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- ── FORM DOSEN ─────────────────────────────────────── -->
+      <div id="tabDosen" class="tab-panel sembunyi">
+        <div class="langkah" id="langkahDsn">
+          <div class="lk aktif" data-lk="1"><span class="lk-num">1</span><div><div class="lk-label">Langkah 01</div><div class="lk-judul">Identitas &amp; Homebase</div></div></div>
+          <div class="lk" data-lk="2"><span class="lk-num">2</span><div><div class="lk-label">Langkah 02</div><div class="lk-judul">Detail Karya &amp; Kategori</div></div></div>
+          <div class="lk" data-lk="3"><span class="lk-num">3</span><div><div class="lk-label">Langkah 03</div><div class="lk-judul">Unggah Berkas &amp; Bukti</div></div></div>
+        </div>
+
+        <form id="formDsn" novalidate>
+          <input type="text" name="situs" id="dsnSitus" class="jebakan" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <div class="seksi">
+            <div class="seksi-kepala">
+              <span class="seksi-bar"></span>
+              <h3>1. Identitas Akademik Pengusul</h3>
+              <span class="lencana info">Data PDDikti</span>
+            </div>
+            <div class="grid-2">
+              <div class="bidang">
+                <label for="dsnNama">Nama Lengkap &amp; Gelar <span class="wajib">*</span></label>
+                <input type="text" id="dsnNama" name="nama" placeholder="Dr. Hendra Saputra, M.Ag." required>
+                <div class="pesan-galat">Nama lengkap wajib diisi.</div>
+              </div>
+              <div class="bidang">
+                <label for="dsnNuptk">NIDN / NUPTK Pengusul <span class="wajib">*</span></label>
+                <input type="text" id="dsnNuptk" name="nuptk" placeholder="2115048201" inputmode="numeric" required>
+                <div class="pesan-galat">NIDN/NUPTK wajib diisi.</div>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="bidang">
+                <label for="dsnProdi">Program Studi / Homebase <span class="wajib">*</span></label>
+                <select id="dsnProdi" name="prodi" required><option value="">— Pilih program studi —</option></select>
+                <div class="pesan-galat">Program studi wajib dipilih.</div>
+              </div>
+              <div class="bidang">
+                <label for="dsnJabfung">Jabatan Fungsional Akademik</label>
+                <select id="dsnJabfung" name="jabatanFungsional">
+                  <option value="">— Pilih jabatan —</option>
+                  <option>Tenaga Pengajar</option>
+                  <option>Asisten Ahli</option>
+                  <option>Lektor</option>
+                  <option>Lektor Kepala</option>
+                  <option>Guru Besar / Profesor</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="bidang">
+                <label for="dsnWa">No. WhatsApp Aktif <span class="wajib">*</span></label>
+                <div class="input-gabung">
+                  <span class="awalan">+62</span>
+                  <input type="tel" id="dsnWa" name="whatsapp" placeholder="813-7729-1092" required>
+                </div>
+                <div class="pesan-galat">Nomor WhatsApp wajib diisi.</div>
+              </div>
+              <div class="bidang">
+                <label for="dsnEmail">Surel Institusi Resmi <span class="wajib">*</span></label>
+                <input type="email" id="dsnEmail" name="email" placeholder="nama@stis-alwafa.ac.id" required>
+                <div class="pesan-galat">Format surel tidak valid.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="seksi">
+            <div class="seksi-kepala">
+              <span class="seksi-bar emas"></span>
+              <h3>2. Klasifikasi &amp; Detail Karya Ilmiah</h3>
+            </div>
+            <div class="pilihan-grid" id="dsnKlasifikasi"></div>
+
+            <div class="bidang mt16">
+              <label for="dsnJudul">Judul Karya / Artikel Ilmiah Lengkap <span class="wajib">*</span></label>
+              <textarea id="dsnJudul" name="judulKarya" rows="2" required
+                placeholder="Tuliskan judul lengkap sesuai naskah terbit."></textarea>
+              <div class="pesan-galat">Judul karya wajib diisi.</div>
+            </div>
+            <div class="grid-2">
+              <div class="bidang">
+                <label for="dsnPenerbit">Nama Penerbit / Nama Jurnal</label>
+                <input type="text" id="dsnPenerbit" name="penerbit" placeholder="Journal of Islamic Monetary Economics">
+              </div>
+              <div class="bidang">
+                <label for="dsnVolume">Volume / Nomor / Halaman / Tahun Terbit</label>
+                <input type="text" id="dsnVolume" name="volume" placeholder="Vol. 10 No. 2 (2026), Hal. 215-238">
+              </div>
+            </div>
+            <div class="bidang">
+              <label for="dsnDoi">DOI Publikasi / URL Repositori Penerbit Resmi</label>
+              <input type="url" id="dsnDoi" name="doi" placeholder="https://doi.org/10.21098/jimef.v10i2.1482">
+            </div>
+          </div>
+
+          <div class="seksi">
+            <div class="seksi-kepala">
+              <span class="seksi-bar"></span>
+              <h3>3. Berkas Pendukung &amp; Bukti Luaran</h3>
+              <span class="s-tanda" id="dsnFormatInfo">Format PDF/JPG maks. 2 MB per berkas</span>
+            </div>
+            <div class="tumpuk g10" id="dsnBerkas"></div>
+            <div class="jatuhkan mt12" id="dsnJatuhkan">
+              <i class="bi bi-cloud-arrow-up j-ikon"></i>
+              <div class="j-judul">Tarik &amp; jatuhkan lampiran pendukung lainnya di sini</div>
+              <div class="j-desk">Sertifikat HKI, Bukti Pembayaran APC, Kontrak Penelitian, atau Rekomendasi Dekan</div>
+            </div>
+            <div class="tumpuk g8 mt12" id="dsnBerkasTambahan"></div>
+          </div>
+
+          <div class="pf-kaki">
+            <div class="tx-sm tx-3 baris g8 sembunyi-hp">
+              <i class="bi bi-shield-lock"></i> Berkas pribadi tidak dibagikan publik
+            </div>
+            <div class="isi-sisa"></div>
+            <button type="button" class="btn btn-garis" onclick="simpanDraf('dsn')">
+              <i class="bi bi-save"></i> Simpan Draf
+            </button>
+            <button type="submit" class="btn btn-utama">
+              <i class="bi bi-send"></i> Kirim Pengajuan Insentif
+            </button>
+          </div>
+        </form>
+      </div>
+
+    </div>
   </div>
 </div>
 
@@ -433,6 +479,7 @@
           <input type="search" id="admCariGlobal" placeholder="Cari nomor surat, perihal, atau pengirim…" autocomplete="off">
         </div>
         <div class="isi-sisa"></div>
+        <span class="tb-sinkron" id="tbSinkron" hidden title="Menyegarkan data di latar belakang"><span class="spinner"></span></span>
         <button class="btn btn-hantu btn-ikon" id="btnTemaAdmin" title="Ubah mode terang / gelap" aria-label="Ubah tema">
           <i class="bi bi-moon-stars"></i>
         </button>
@@ -456,29 +503,23 @@
   </div>
 </div>
 
-<!-- ════════════════════════════════════════════════════════════════
-     MODAL & TOAST
-     ═════════════════════════════════════════════════════════════════ -->
-<!-- Modal dibuat dinamis dan bertumpuk oleh js/ui.js (bukaModal / tutupModal) -->
-
 <div id="toastWadah" aria-live="polite" aria-atomic="true"></div>
 
 <!-- ════════════════════════════════════════════════════════════════
-     PUSTAKA & SKRIP APLIKASI
+     PUSTAKA & SKRIP APLIKASI — "defer": halaman tampil tanpa menunggu skrip
      ═════════════════════════════════════════════════════════════════ -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-
-<script src="js/config.js"></script>
-<script src="js/api.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/publik.js"></script>
-<script src="js/admin.js"></script>
-<script src="js/surat.js"></script>
-<script src="js/verifikasi.js"></script>
-<script src="js/laporan.js"></script>
-<script src="js/pengaturan.js"></script>
-<script src="js/app.js"></script>
+<script defer src="js/config.js"></script>
+<script defer src="js/api.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script defer src="js/ui.js"></script>
+<script defer src="js/publik.js"></script>
+<script defer src="js/admin.js"></script>
+<script defer src="js/surat.js"></script>
+<script defer src="js/verifikasi.js"></script>
+<script defer src="js/laporan.js"></script>
+<script defer src="js/pengaturan.js"></script>
+<script defer src="js/app.js"></script>
 
 </body>
 </html>

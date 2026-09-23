@@ -1,7 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════
-   e-SURAT — js/app.js
+   e-SURAT — js/app.js  (v4.2)
    Titik masuk aplikasi: pemuatan awal, perpindahan lapisan, autentikasi.
    Berkas ini dimuat TERAKHIR — seluruh fungsi lain sudah tersedia.
+
+   Kecepatan v4.2:
+   · Data portal diambil sejak api.js dimuat (paralel dengan pustaka CDN)
+   · Portal langsung tampil dari cache peramban, lalu disegarkan diam-diam
+   · Panel admin tampil dari snapshot, lalu disegarkan di latar belakang
    ═══════════════════════════════════════════════════════════════════ */
 
 var Aplikasi = { siap: false, lapisan: 'publik' };
@@ -21,6 +26,8 @@ function sembunyikanLoading() {
 function galatMuat(judul, detail, saran) {
   var g = el('muatGalat');
   if (!g) return;
+  var l = el('layarMuat');
+  if (l) l.classList.remove('sembunyi');
   g.innerHTML = '<div style="font-weight:600;margin-bottom:7px">' +
     '<i class="bi bi-exclamation-octagon-fill"></i> ' + esc(judul) + '</div>' +
     '<div style="margin-bottom:9px;line-height:1.65">' + esc(detail) + '</div>' +
@@ -37,12 +44,13 @@ function tampilkanLapisan(nama) {
   });
   var peta = { publik: 'publicApp', login: 'loginApp', admin: 'adminApp' };
   el(peta[nama] || 'publicApp').classList.add('aktif');
+  if (nama !== 'publik' && typeof tutupFormPengajuan === 'function') tutupFormPengajuan();
   window.scrollTo(0, 0);
 }
 
 function bukaLogin() {
   tampilkanLapisan('login');
-  setTimeout(function () { var e = el('loginEmail'); if (e) e.focus(); }, 120);
+  setTimeout(function () { var e = el('loginEmail'); if (e) e.focus(); }, 60);
 }
 
 function keluarKePortal() {
@@ -63,8 +71,6 @@ function prosesLogin(e) {
 
   tombolSibuk(btn, true, 'Memverifikasi…');
 
-  // muatPanel:true → server mengembalikan token DAN data panel sekaligus,
-  // memangkas satu perjalanan penuh ke server menuju dashboard.
   kirim('login', { email: email, password: sandi, muatPanel: true }).then(function (r) {
     tombolSibuk(btn, false);
     if (!r.success) { toast(r.message, 'galat'); return; }
@@ -85,13 +91,13 @@ function logout() {
     ya: 'Ya, Keluar'
   }).then(function (ya) {
     if (!ya) return;
-    kirim('logout', {}).then(function () {
-      Sesi.hapus();
-      Adm.boot = null;
-      Adm.modulAktif = 'dashboard';
-      tampilkanLapisan('publik');
-      toast('Anda telah keluar dari sistem.', 'info');
-    });
+    // Keluar seketika di sisi klien; pemberitahuan ke server berjalan di latar
+    kirim('logout', {});
+    Sesi.hapus();
+    Adm.boot = null;
+    Adm.modulAktif = 'dashboard';
+    tampilkanLapisan('publik');
+    toast('Anda telah keluar dari sistem.', 'info');
   });
 }
 
@@ -131,6 +137,21 @@ function periksaKeutuhan() {
   return wajib.filter(function (w) { return !w[1]; }).map(function (w) { return w[0]; });
 }
 
+/* ── Portal: tampil dari cache, segarkan di latar ───────────────── */
+var _jejakPortal = '';
+
+function terapkanPortal(data, dariCache) {
+  var jejak = JSON.stringify(data);
+  if (jejak === _jejakPortal) return;              // tidak ada perubahan → tidak render ulang
+  if (!dariCache && _jejakPortal && Publik.popupTerbuka) {
+    // Pengguna sedang mengisi formulir — tunda render ulang agar isian tidak terganggu
+    setTimeout(function () { terapkanPortal(data, false); }, 5000);
+    return;
+  }
+  _jejakPortal = jejak;
+  jalankanAman(function () { renderPortal(data); }, 'Portal');
+}
+
 /* ── Pemuatan awal ──────────────────────────────────────────────── */
 function mulaiAplikasi() {
   muatTema();
@@ -140,7 +161,7 @@ function mulaiAplikasi() {
   if (hilang.length) {
     galatMuat('Berkas skrip tidak lengkap',
       'Berkas berikut tidak termuat: ' + hilang.join(', ') + '.',
-      'Pastikan folder <code>js/</code> berisi kesembilan berkas dan struktur foldernya ' +
+      'Pastikan folder <code>js/</code> berisi seluruh berkas dan struktur foldernya ' +
       'tidak berubah saat diunggah ke GitHub Pages.');
     return;
   }
@@ -151,6 +172,26 @@ function mulaiAplikasi() {
       'Buka berkas <code>js/config.js</code>, ganti baris <code>var GAS_URL = …</code> dengan URL ' +
       'Web App Apps Script Anda yang berakhiran <code>/exec</code>, lalu unggah ulang.');
     return;
+  }
+
+  Sesi.muat();
+
+  /* Jalur cepat 1 — sesi admin masih ada + snapshot panel → langsung panel */
+  if (Sesi.ada()) {
+    var snapshot = Sesi.ambilBoot(30 * 60 * 1000);
+    if (snapshot) {
+      tampilkanLapisan('admin');
+      jalankanAman(function () { muatPanelAdmin(snapshot); }, 'Panel');
+      sembunyikanLoading();
+      segarkanPanelDiamDiam();
+    }
+  }
+
+  /* Jalur cepat 2 — portal dari cache peramban (tampil < 100 ms) */
+  var cache = CachePortal.ambil();
+  if (cache) {
+    terapkanPortal(cache.data, true);
+    if (!Aplikasi.siap && !Sesi.ada()) { tampilkanLapisan('publik'); sembunyikanLoading(); }
   }
 
   statusMuat('Menghubungkan ke server…');
@@ -165,33 +206,24 @@ function mulaiAplikasi() {
     }
   }, 25000);
 
-  ambil('bootstrapPublik', {}).then(function (r) {
+  (JanjiBootPublik || ambil('bootstrapPublik', {})).then(function (r) {
     clearTimeout(batas);
 
     if (!r.success) {
+      if (cache) return;   // tetap pakai data cache, jangan hentikan pengguna
       galatMuat('Data portal gagal dimuat', r.message,
         'Bila pesan menyebut spreadsheet atau sheet tidak ditemukan, jalankan ' +
-        '<code>setupAppEnvironment()</code> di editor Apps Script lalu deploy ulang.');
+        '<code>MIGRASI_SKEMA()</code> di editor Apps Script lalu deploy ulang.');
       return;
     }
 
-    statusMuat('Memuat data portal…');
-    jalankanAman(function () { renderPortal(r.data); }, 'Portal');
+    CachePortal.simpan(r.data);
+    terapkanPortal(r.data, false);
 
-    /* Pulihkan sesi admin bila masih berlaku */
-    Sesi.muat();
+    if (Aplikasi.siap) return;   // sudah tampil dari cache/snapshot
+
     if (Sesi.ada()) {
       statusMuat('Memulihkan sesi administrasi…');
-      // Snapshot panel dari kunjungan sebelumnya → dashboard tampil seketika
-      var snapshot = Sesi.ambilBoot(30 * 60 * 1000);
-      if (snapshot) {
-        tampilkanLapisan('admin');
-        jalankanAman(function () { muatPanelAdmin(snapshot); }, 'Panel');
-        sembunyikanLoading();
-        segarkanPanelDiamDiam();
-        return;
-      }
-
       return kirim('validateSession', {}).then(function (s) {
         if (s.success) {
           Sesi.simpan(Sesi.token, s.data);
@@ -209,6 +241,7 @@ function mulaiAplikasi() {
     sembunyikanLoading();
   }).catch(function (e) {
     clearTimeout(batas);
+    if (cache) return;
     galatMuat('Gagal menghubungi server', e.message || String(e),
       'Periksa koneksi internet Anda dan pastikan URL Web App masih aktif.');
   });
@@ -216,13 +249,17 @@ function mulaiAplikasi() {
 
 /* ── Pemasangan pendengar peristiwa ─────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function () {
-  /* Formulir */
   var fMhs = el('formMhs');       if (fMhs) fMhs.addEventListener('submit', kirimPengajuanMhs);
   var fDsn = el('formDsn');       if (fDsn) fDsn.addEventListener('submit', kirimPengajuanDsn);
   var fLacak = el('formLacak');   if (fLacak) fLacak.addEventListener('submit', jalankanLacak);
   var fLogin = el('formLogin');   if (fLogin) fLogin.addEventListener('submit', prosesLogin);
 
-  /* Tema */
+  /* Draf otomatis & bilah kelengkapan */
+  if (fMhs) fMhs.addEventListener('input', function () { simpanDrafOtomatis('mhs'); });
+  if (fDsn) fDsn.addEventListener('input', function () { simpanDrafOtomatis('dsn'); });
+  if (fMhs) fMhs.addEventListener('change', function () { simpanDrafOtomatis('mhs'); });
+  if (fDsn) fDsn.addEventListener('change', function () { simpanDrafOtomatis('dsn'); });
+
   ['btnTemaPublik', 'btnTemaAdmin'].forEach(function (id) {
     var b = el(id);
     if (b) b.addEventListener('click', function () {
@@ -233,7 +270,6 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
-  /* Tampilkan / sembunyikan kata sandi */
   var bLihat = el('btnLihatSandi');
   if (bLihat) bLihat.addEventListener('click', function () {
     var i = el('loginSandi');
@@ -243,7 +279,6 @@ document.addEventListener('DOMContentLoaded', function () {
     i.focus();
   });
 
-  /* Penghitung karakter alasan pengajuan mahasiswa */
   var alasan = el('mhsAlasan');
   if (alasan) alasan.addEventListener('input', function () {
     var h = el('mhsAlasanHitung');
@@ -251,7 +286,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (alasan.value.length > 0) tandaiLangkah('Mhs', 2);
   });
 
-  /* Tandai langkah ketika identitas mulai diisi */
   ['mhsNama', 'mhsNim'].forEach(function (id) {
     var e = el(id);
     if (e) e.addEventListener('input', function () { tandaiLangkah('Mhs', 1); });
@@ -269,16 +303,11 @@ document.addEventListener('DOMContentLoaded', function () {
     if (e.key !== 'Enter') return;
     var q = String(cariGlobal.value || '').trim();
     if (!q) return;
-    Adm.filter[Adm.modulAktif] = q;
-    if (['dashboard', 'laporan', 'pengaturan'].indexOf(Adm.modulAktif) >= 0) {
-      renderModul('suratKeluar');
-      Adm.filter.suratKeluar = q;
-      renderModul('suratKeluar');
-    } else {
-      renderModul(Adm.modulAktif);
-    }
+    var tujuan = ['dashboard', 'laporan', 'pengaturan'].indexOf(Adm.modulAktif) >= 0 ? 'suratKeluar' : Adm.modulAktif;
+    Adm.filter[tujuan] = q;
+    Adm.halaman[tujuan] = 1;
+    renderModul(tujuan);
   });
 
-  /* Mulai */
   jalankanAman(mulaiAplikasi, 'Pemuatan awal');
 });
