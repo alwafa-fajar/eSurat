@@ -16,7 +16,7 @@
  * Contoh:
  *   var GAS_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
  */
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbygr6PBksCTw41Ljv8tIZnTtKvAOyjha5Zo06WShKf-DLgh631SAfQ7eWHMq8ci1p_O/exec';
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbycSAqKhXgtTJ8cCrd7WEfRq6jDf2xqz4kZDFf63Gu2aKqWESxt17uJPJ45mgRiVU42eA/exec';
 
 /* ── Pengaturan aplikasi klien ──────────────────────────────────── */
 var APP = {
