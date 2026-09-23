@@ -99,7 +99,7 @@ function renderKerangkaAdmin() {
   el('admTahunAkademik').textContent = 'TA ' + (cfg.TAHUN_AKADEMIK || '—') + ' ' + (cfg.SEMESTER || '');
   el('admNama').textContent = u.jabatan || u.nama;
   el('admEmail').textContent = u.email;
-  el('admAvatar').textContent = inisial(u.nama);
+  el('admAvatar').innerHTML = avatarPengguna_(u);
   el('admLogo').innerHTML = cfg.INSTITUSI_LOGO
     ? '<img src="' + esc(cfg.INSTITUSI_LOGO) + '" alt="Logo institusi">'
     : '<i class="bi bi-envelope-paper-fill"></i>';
@@ -135,8 +135,6 @@ function renderSidebar() {
   });
 
   h += '<div class="sb-grup">Akun</div>' +
-    '<button class="sb-item" onclick="bukaGantiSandi()"><i class="bi bi-key"></i>' +
-    '<span class="sisa">Ganti Kata Sandi</span></button>' +
     '<button class="sb-item" onclick="keluarKePortal()"><i class="bi bi-globe"></i>' +
     '<span class="sisa">Lihat Portal Publik</span></button>' +
     '<button class="sb-item" onclick="logout()"><i class="bi bi-box-arrow-right"></i>' +
@@ -1020,23 +1018,33 @@ function tutupSidebar() {
 }
 
 /* ── Akun ───────────────────────────────────────────────────────── */
+/** Foto profil Google (bila ada) atau inisial nama. */
+function avatarPengguna_(u) {
+  var f = String((u && u.foto) || '');
+  if (/^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\//i.test(f)) {
+    return '<img src="' + esc(f) + '" alt="" referrerpolicy="no-referrer" ' +
+           'style="width:100%;height:100%;border-radius:50%;object-fit:cover" ' +
+           'onerror="this.parentNode.textContent=\'' + esc(inisial(u.nama)) + '\'">';
+  }
+  return esc(inisial(u && u.nama));
+}
+
 function bukaMenuAkun() {
   var u = Adm.boot.user || {};
   bukaModal({
     sempit: true,
     judul: 'Akun Saya',
-    isi: '<div class="baris g12 mb16"><div class="avatar" style="width:48px;height:48px;font-size:16px">' +
-      inisial(u.nama) + '</div><div><div class="tebal">' + esc(u.nama) + '</div>' +
+    isi: '<div class="baris g12 mb16"><div class="avatar" style="width:48px;height:48px;font-size:16px;overflow:hidden">' +
+      avatarPengguna_(u) + '</div><div><div class="tebal">' + esc(u.nama) + '</div>' +
       '<div class="tx-sm tx-3">' + esc(u.email) + '</div>' +
       '<div class="mt4"><span class="lencana info">' + esc(u.peran) + '</span></div></div></div>' +
       '<div class="tabel-bungkus"><table class="data"><tbody>' +
       '<tr><td style="color:var(--ink-2)">Jabatan</td><td>' + esc(u.jabatan || '—') + '</td></tr>' +
       '<tr><td style="color:var(--ink-2)">Masuk sejak</td><td>' + tglJam(u.masuk) + '</td></tr>' +
+      '<tr><td style="color:var(--ink-2)">Metode masuk</td><td>' + esc(u.metode || 'Kata sandi') + '</td></tr>' +
       '<tr><td style="color:var(--ink-2)">Versi aplikasi</td><td class="mono">' +
       esc(Adm.boot.versi || APP.versi) + '</td></tr></tbody></table></div>',
-    kaki: '<button class="btn btn-garis" onclick="tutupModal();bukaGantiSandi()">' +
-          '<i class="bi bi-key"></i> Ganti Kata Sandi</button>' +
-          '<button class="btn btn-bahaya" onclick="tutupModal();logout()">' +
+    kaki: '<button class="btn btn-bahaya" onclick="tutupModal();logout()">' +
           '<i class="bi bi-box-arrow-right"></i> Keluar</button>'
   });
 }

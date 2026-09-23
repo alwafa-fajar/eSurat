@@ -45,12 +45,111 @@ function tampilkanLapisan(nama) {
   var peta = { publik: 'publicApp', login: 'loginApp', admin: 'adminApp' };
   el(peta[nama] || 'publicApp').classList.add('aktif');
   if (nama !== 'publik' && typeof tutupFormPengajuan === 'function') tutupFormPengajuan();
+  if (nama === 'login') siapkanTombolGoogle();
   window.scrollTo(0, 0);
 }
 
 function bukaLogin() {
   tampilkanLapisan('login');
-  setTimeout(function () { var e = el('loginEmail'); if (e) e.focus(); }, 60);
+}
+
+/* ── Login Google (OAuth 2.0 · Google Identity Services) ────────── */
+var LoginGoogle = { clientId: '', siap: false, percobaan: 0 };
+
+function infoLogin(html) { var i = el('loginInfo'); if (i) { i.innerHTML = html || ''; i.hidden = !html; } }
+function galatLogin(pesan) {
+  var g = el('loginGalat'); if (!g) return;
+  g.hidden = !pesan;
+  g.innerHTML = pesan ? '<i class="bi bi-exclamation-octagon-fill"></i> <span>' + esc(pesan) + '</span>' : '';
+}
+
+/** Ambil pengaturan login dari data portal (cache) atau dari server. */
+function pengaturanLogin_() {
+  var a = Publik.data && Publik.data.auth;
+  if (a && a.googleClientId) return Promise.resolve(a);
+  var janji = (typeof JanjiBootPublik !== 'undefined' && JanjiBootPublik) ? JanjiBootPublik : ambil('bootstrapPublik', {});
+  return janji.then(function (r) {
+    if (!r || !r.success) throw new Error((r && r.message) || 'Server tidak merespons.');
+    var aa = r.data && r.data.auth;
+    if (aa && aa.googleClientId) return aa;
+    // Cache lama mungkin belum memuat Client ID → minta data segar sekali
+    return ambil('bootstrapPublik', { _t: Date.now() }).then(function (r2) {
+      return (r2 && r2.success && r2.data && r2.data.auth) || aa || null;
+    });
+  });
+}
+
+function siapkanTombolGoogle() {
+  galatLogin('');
+  if (LoginGoogle.siap) { infoLogin(''); return; }
+  infoLogin('<span class="spinner"></span> Menyiapkan tombol Google…');
+
+  pengaturanLogin_().then(function (auth) {
+    var f = el('formLogin');
+    if (f) f.hidden = !(auth && auth.sandiAktif);
+    if (!auth) {
+      infoLogin('');
+      galatLogin('Server belum diperbarui ke versi login Google (v4.3). Tempel berkas .gs terbaru lalu Deploy → New version.');
+      return;
+    }
+    if (!auth.googleClientId) {
+      infoLogin('');
+      galatLogin('Login Google belum dikonfigurasi. Super Admin perlu mengisi Client ID lalu menjalankan ATUR_LOGIN_GOOGLE() di Apps Script.');
+      return;
+    }
+    LoginGoogle.clientId = auth.googleClientId;
+    pasangTombolGoogle_();
+  }).catch(function (e) {
+    infoLogin('');
+    galatLogin('Tidak dapat terhubung ke server: ' + (e && e.message ? e.message : e));
+  });
+}
+
+function pasangTombolGoogle_() {
+  if (!(window.google && google.accounts && google.accounts.id)) {
+    if (++LoginGoogle.percobaan > 60) {   // ± 12 detik
+      infoLogin('');
+      galatLogin('Layanan Google Sign-In gagal dimuat. Periksa koneksi internet atau matikan pemblokir iklan/skrip, lalu muat ulang halaman.');
+      return;
+    }
+    setTimeout(pasangTombolGoogle_, 200);
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: LoginGoogle.clientId,
+    callback: tanganiKredensialGoogle,
+    ux_mode: 'popup',
+    auto_select: false,
+    cancel_on_tap_outside: true,
+    itp_support: true,
+    use_fedcm_for_prompt: true
+  });
+  var wadah = el('tombolGoogle');
+  wadah.innerHTML = '';
+  google.accounts.id.renderButton(wadah, {
+    type: 'standard', theme: 'filled_blue', size: 'large', shape: 'pill',
+    text: 'signin_with', logo_alignment: 'left', locale: 'id',
+    width: Math.min(Math.max(wadah.clientWidth || 300, 220), 400)
+  });
+  LoginGoogle.siap = true;
+  infoLogin('');
+}
+
+function tanganiKredensialGoogle(resp) {
+  if (!resp || !resp.credential) { galatLogin('Login Google dibatalkan.'); return; }
+  galatLogin('');
+  el('tombolGoogle').classList.add('sibuk');
+  infoLogin('<span class="spinner"></span> Memverifikasi akun Google…');
+
+  kirim('loginGoogle', { credential: resp.credential, muatPanel: true }).then(function (r) {
+    el('tombolGoogle').classList.remove('sibuk');
+    infoLogin('');
+    if (!r.success) { galatLogin(r.message); return; }
+    Sesi.simpan(r.data.token, r.data.user);
+    toast(r.message, 'sukses');
+    tampilkanLapisan('admin');
+    muatPanelAdmin(r.data.boot);
+  });
 }
 
 function keluarKePortal() {
@@ -73,7 +172,7 @@ function prosesLogin(e) {
 
   kirim('login', { email: email, password: sandi, muatPanel: true }).then(function (r) {
     tombolSibuk(btn, false);
-    if (!r.success) { toast(r.message, 'galat'); return; }
+    if (!r.success) { galatLogin(r.message); return; }
 
     Sesi.simpan(r.data.token, r.data.user);
     el('loginSandi').value = '';
@@ -93,6 +192,7 @@ function logout() {
     if (!ya) return;
     // Keluar seketika di sisi klien; pemberitahuan ke server berjalan di latar
     kirim('logout', {});
+    try { if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect(); } catch (e) {}
     Sesi.hapus();
     Adm.boot = null;
     Adm.modulAktif = 'dashboard';
@@ -268,15 +368,6 @@ document.addEventListener('DOMContentLoaded', function () {
         setTimeout(function () { jalankanAman(function () { gambarGrafikDashboard(Adm.boot.dashboard); }); }, 60);
       }
     });
-  });
-
-  var bLihat = el('btnLihatSandi');
-  if (bLihat) bLihat.addEventListener('click', function () {
-    var i = el('loginSandi');
-    var lihat = i.type === 'password';
-    i.type = lihat ? 'text' : 'password';
-    bLihat.innerHTML = '<i class="bi bi-' + (lihat ? 'eye-slash' : 'eye') + '"></i>';
-    i.focus();
   });
 
   var alasan = el('mhsAlasan');

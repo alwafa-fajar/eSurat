@@ -135,12 +135,11 @@ var MASTER_SKEMA = {
     ],
     bidang: [
       { id: 'nama', l: 'Nama Lengkap', wajib: true, kolom: 2 },
-      { id: 'email', l: 'Alamat Surel', t: 'email', wajib: true, kolom: 2 },
+      { id: 'email', l: 'Surel Akun Google', t: 'email', wajib: true, kolom: 2,
+        bantu: 'Akun Google (Gmail / Workspace) yang dipakai untuk <b>Masuk dengan Google</b>.' },
       { id: 'jabatan', l: 'Jabatan', kolom: 2 },
       { id: 'peran', l: 'Peran Akses', t: 'pilih', wajib: true, kolom: 2,
         opsi: ['SUPER_ADMIN', 'ADMIN', 'PIMPINAN'] },
-      { id: 'password', l: 'Kata Sandi', t: 'password',
-        bantu: 'Minimal 8 karakter. <b>Wajib</b> untuk akun baru; kosongkan bila tidak ingin mengubah kata sandi akun lama.' },
       { id: 'aktif', l: 'Status Akun', t: 'pilih', opsi: ['true', 'false'] }
     ]
   },
@@ -612,20 +611,35 @@ function simpanKonfigurasi(obj, btn) {
 /* ── Tab: Keamanan ──────────────────────────────────────────────── */
 function tabKeamanan(w) {
   var u = Adm.boot.user || {};
+  var c = Adm.boot.config || {};
   w.innerHTML = '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
-    '<h3>Keamanan Akun</h3>' +
-    '<div class="kartu-sub">Kata sandi disimpan sebagai hash SHA-256 dan tidak pernah tersimpan sebagai teks biasa.</div>' +
+    '<h3>Akun Saya</h3>' +
+    '<div class="kartu-sub">Masuk memakai akun Google — tidak ada kata sandi yang disimpan di e-SURAT.</div>' +
     '</div></div>' +
-    '<div class="baris g12 mb16"><div class="avatar" style="width:44px;height:44px;font-size:15px">' +
-    inisial(u.nama) + '</div><div><div class="tebal">' + esc(u.nama) + '</div>' +
-    '<div class="tx-sm tx-3">' + esc(u.email) + ' · ' + esc(u.peran) + '</div></div></div>' +
-    '<button class="btn btn-navy" onclick="bukaGantiSandi()">' +
-    '<i class="bi bi-key"></i> Ganti Kata Sandi Saya</button></div>' +
+    '<div class="baris g12"><div class="avatar" style="width:44px;height:44px;font-size:15px;overflow:hidden">' +
+    avatarPengguna_(u) + '</div><div><div class="tebal">' + esc(u.nama) + '</div>' +
+    '<div class="tx-sm tx-3">' + esc(u.email) + ' · ' + esc(u.peran) + ' · ' + esc(u.metode || 'Kata sandi') + '</div></div></div></div>' +
 
     '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
-    '<h3>Perlindungan Aktif (v4.2)</h3></div></div>' +
+    '<h3><i class="bi bi-google"></i> Login Google (OAuth 2.0)</h3>' +
+    '<div class="kartu-sub">Client ID dibuat di Google Cloud Console → Google Auth Platform → Clients (tipe Web application).</div>' +
+    '</div></div>' +
+    '<div class="grid-2">' +
+    bidangTeks({ id: 'cfGoogleClient', label: 'OAuth Client ID', nilai: c.GOOGLE_CLIENT_ID, kolom: 2,
+      placeholder: '1234567890-xxxx.apps.googleusercontent.com',
+      bantu: 'Authorized JavaScript origins wajib berisi alamat situs, mis. <code>' + esc(location.origin) + '</code>' }) +
+    bidangTeks({ id: 'cfGoogleDomain', label: 'Batasi Domain Surel (opsional)', nilai: c.GOOGLE_DOMAIN_IZIN, kolom: 2,
+      placeholder: 'gmail.com, stis-alwafa.ac.id',
+      bantu: 'Kosongkan agar semua akun Google yang terdaftar di Master Pengguna dapat masuk.' }) +
+    '</div>' +
+    '<div class="baris g8 mt8"><button class="btn btn-navy" id="btnSimpanGoogle" onclick="simpanLoginGoogle()">' +
+    '<i class="bi bi-save"></i> Simpan Pengaturan Login</button></div></div>' +
+
+    '<div class="kartu mb20"><div class="kartu-kepala"><div>' +
+    '<h3>Perlindungan Aktif</h3></div></div>' +
     '<ul style="padding-left:20px;line-height:2;font-size:13.5px;margin:0">' +
-    '<li>Masuk dikunci 15 menit setelah 5 kali salah kata sandi.</li>' +
+    '<li>Masuk hanya dengan akun Google terverifikasi yang terdaftar & aktif di Master Pengguna.</li>' +
+    '<li>ID token Google diverifikasi di server (penerbit, Client ID, kedaluwarsa, surel terverifikasi).</li>' +
     '<li>Token sesi hanya dikirim di badan permintaan — tidak pernah tampil di URL.</li>' +
     '<li>API key Gemini &amp; token WhatsApp tidak pernah dikirim ke peramban.</li>' +
     '<li>Berkas pribadi pemohon (KK, KTP, slip gaji) tidak dibagikan publik; hanya dapat dibuka admin setelah login.</li>' +
@@ -636,12 +650,27 @@ function tabKeamanan(w) {
     '<div class="kartu"><div class="kartu-kepala"><div>' +
     '<h3>Praktik Keamanan yang Disarankan</h3></div></div>' +
     '<ul style="padding-left:20px;line-height:2;font-size:13.5px;margin:0">' +
-    '<li>Ganti kata sandi ketiga akun bawaan segera setelah pemasangan.</li>' +
+    '<li>Ganti surel akun bawaan (<code>@esurat.local</code>) dengan akun Google asli, atau nonaktifkan.</li>' +
     '<li>Nonaktifkan akun yang tidak lagi dipakai alih-alih menghapusnya, agar jejak audit tetap utuh.</li>' +
     '<li>Batasi peran SUPER_ADMIN hanya untuk satu atau dua orang penanggung jawab sistem.</li>' +
-    '<li>Tinjau Log Aktivitas secara berkala, terutama aksi penarikan dokumen dan bypass verifikasi.</li>' +
+    '<li>Aktifkan Verifikasi 2 Langkah pada akun Google para admin.</li>' +
     '<li>Sesi berakhir otomatis setelah 6 jam tidak aktif.</li>' +
     '</ul></div>';
+}
+
+function simpanLoginGoogle() {
+  var cid = ambilNilai('cfGoogleClient').trim();
+  if (cid && !/\.apps\.googleusercontent\.com$/.test(cid)) {
+    tandaiGalat(el('cfGoogleClient'), 'Client ID harus berakhiran .apps.googleusercontent.com');
+    return;
+  }
+  var c = Adm.boot.config || {};
+  if (c.GOOGLE_CLIENT_ID && cid !== c.GOOGLE_CLIENT_ID) {
+    if (!window.confirm('Mengganti Client ID yang salah akan membuat SEMUA admin tidak dapat masuk. Lanjutkan?')) return;
+  }
+  var btn = el('btnSimpanGoogle');
+  tombolSibuk(btn, true, 'Menyimpan…');
+  simpanKonfigurasi({ GOOGLE_CLIENT_ID: cid, GOOGLE_DOMAIN_IZIN: ambilNilai('cfGoogleDomain').trim() }, btn);
 }
 
 /* ── Tab: Log aktivitas ─────────────────────────────────────────── */
@@ -1066,8 +1095,6 @@ function simpanMaster(master, id) {
   var skema = MASTER_SKEMA[master];
   var aturan = skema.bidang.filter(function (b) { return b.wajib; })
     .map(function (b) { return { id: 'ms_' + b.id, wajib: true, email: b.t === 'email' }; });
-  if (master === 'pengguna' && !id) aturan.push({ id: 'ms_password', wajib: true, pesan: 'Kata sandi wajib untuk akun baru.' });
-  if (master === 'pengguna' && ambilNilai('ms_password')) aturan.push({ id: 'ms_password', min: 8 });
   if (!validasiForm(null, aturan)) return;
 
   var rec = { id: id || '' };
